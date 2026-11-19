@@ -17,7 +17,7 @@
   #stage { position: fixed; inset: 0; }
   video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
   canvas#ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  #top { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; align-items: center;
+  #top { position: fixed; top: 12px; left: 12px; right: 96px; display: flex; gap: 8px; align-items: center;
     flex-wrap: wrap; z-index: 5; }
   #top select, #top label, #top button { background: var(--dim); color: var(--ink); border: 1px solid rgba(255,255,255,.18);
     border-radius: 999px; padding: 6px 12px; font-size: 13px; backdrop-filter: blur(8px); }
@@ -62,7 +62,11 @@
   #keybox small { opacity: .7; line-height: 1.6; }
   #keybox a { color: #93c5fd; }
   #settings { display: none; }
-  #top #quit { background: rgba(153,27,27,.85); }
+  /* 終了ボタン：右上に常に出す（最初の画面の上にも出る） */
+  #quit { position: fixed; top: calc(env(safe-area-inset-top) + 10px); right: 10px; z-index: 30;
+    background: #b91c1c; color: #fff; border: 2px solid rgba(255,255,255,.7); border-radius: 999px;
+    padding: 9px 18px; font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 12px rgba(0,0,0,.5); }
+  #ver { position: fixed; bottom: calc(env(safe-area-inset-bottom) + 8px); left: 0; right: 0; font-size: 11px; opacity: .45; }
   #pinbox, #phone { display: none; flex-direction: column; gap: 10px; align-items: center; }
   #phone { background: rgba(255,255,255,.06); border-radius: 14px; padding: 12px 18px; font-size: 14px; line-height: 1.7; }
   #phone code { font-size: 15px; user-select: all; }
@@ -71,7 +75,8 @@
   /* スマホ：画面いっぱいに映し、上の欄を小さくする */
   @media (max-width: 700px) {
     video { object-fit: cover; }
-    #top { top: calc(env(safe-area-inset-top) + 6px); left: 6px; right: 6px; gap: 5px; }
+    #top { top: calc(env(safe-area-inset-top) + 6px); left: 6px; right: 86px; gap: 5px; }
+    #quit { font-size: 15px; padding: 8px 14px; }
     #top select, #top label, #top button { font-size: 12px; padding: 5px 9px; }
     #top select { max-width: 46vw; }
     #now { display: none; }
@@ -95,15 +100,16 @@
   <label><input type="checkbox" id="voice" checked>声</label>
   <button id="now" title="Space">今すぐ読む</button>
   <button id="settings">設定</button>
-  <button id="quit">終了</button>
   <span id="mockbadge" style="font-size:12px;padding:6px 10px;border-radius:999px">試し（AI を呼んでいません）</span>
   <span id="cost"></span>
 </div>
+<button id="quit">終了</button>
 <div id="pill"><span class="dot"></span><span id="pilltext">準備中</span></div>
 <div id="card"></div>
 
 <div id="start">
   <h1>カメラ4択</h1>
+  <div id="ver">版 2026-11-20b</div>
   <p>問題をカメラに映すと、AI が読んで正解を映像の上に示します。<br>
      止めて映すと自動で読みます。画面を押すと今すぐ読みます。</p>
   <div id="pinbox"><div>Mac に出ている6桁の PIN を入れてください</div>
@@ -131,7 +137,8 @@ const TICK_MS = 120;          // 映像を見る間隔
 const STILL = 5;              // これより動きが小さければ「止まっている」（0〜255の平均差）
 const STILL_TICKS = 6;        // 止まっている回数がこれに届いたら読む（約0.7秒）
 const NEW_SCENE = 14;         // 前に読んだ画面とこれ以上違えば新しい問題とみなす
-const RETRY_MS = 4000;        // 読めなかったとき、同じ画面で読み直すまでの間
+const RETRY_MS = 6000;        // 読めなかったとき、次に読むまでの最短の間（続けて読めないと倍ずつ延ばし、最長60秒）
+let misses = 0;               // 続けて読めなかった回数
 const LOST = 30;              // 追いかけの差がこれを超えたら枠を薄くする
 const CHANGED = 35;           // 選択肢の文字の差（輪郭の差）がこれを超えたら別の問題とみなす（試しでは同じ問題0〜15、別の問題57）
 
@@ -280,16 +287,17 @@ function onAnswer(labels, audio) {
 }
 function onDone(d, sec, yen, cap) {
   if (ended) return;
+  misses = d.found ? 0 : misses + 1;
   lastFound = d.found;
   if (d.found) {
     result = {...cap, d, shown: performance.now()}; shift = {x: 0, y: 0}; lost = false;
     pill("正解 " + d.answer_labels.join("・") + (d.confidence === "低" ? "（自信なし）" : ""), "answer");
     showCard(d, `${sec}秒・約${yen}円`);
   } else {
-    pill(d.reason || "問題が読めません", "warn");
+    pill((d.reason || "問題が読めません") + "（押すと読み直す）", "warn");
   }
 }
-function onError(msg, stopAuto) { if (ended) return; lastFound = false; pill(msg, "warn"); if (stopAuto) $("auto").checked = false; }
+function onError(msg, stopAuto) { if (ended) return; misses++; lastFound = false; pill(msg, "warn"); if (stopAuto) $("auto").checked = false; }
 
 async function solve(reason) {
   if (busy || ended || !stream || !v.videoWidth) return;
@@ -393,7 +401,13 @@ async function solveDirect(image, w, h, cap) {
 function voiceFor(labels, confidence) { return ""; }
 
 // ---- 見張り：止めて映したら読む、画面が変わったら読み直す
+function placePill() {          // 正解の表示は、上の欄（何段になっても）のすぐ下に置く
+  const b = $("top").getBoundingClientRect().bottom;
+  $("pill").style.top = Math.round(b + 10) + "px";
+}
+addEventListener("resize", placePill);
 function tick() {
+  placePill();
   if (v.videoWidth) {
     const small = gray(64);
     const motion = diff(small, prevSmall); prevSmall = small;
@@ -402,8 +416,11 @@ function tick() {
     if ($("auto").checked && !busy && stillTicks >= STILL_TICKS) {
       const change = diff(small, sentSmall);
       const isNew = result ? lost : change > NEW_SCENE;   // 枠を追いかけられている間は読み直さない。見失ったか文字が変わったら読む
-      const retry = !lastFound && Date.now() - lastSendAt > RETRY_MS;
-      if (isNew || retry) { if (isNew) clearResult(); solve(isNew ? "new" : "retry"); }
+      // 読めなかった後は、画面が変わっても少し待つ。続けて読めないほど長く待つ（6・12・24・48・60秒）。
+      // 人や部屋だけが映っている間に何度も読んで費用がかかるのを防ぐ。
+      const wait = Math.min(60000, RETRY_MS * 2 ** Math.max(0, misses - 1));
+      const waited = lastFound || Date.now() - lastSendAt > wait;
+      if (isNew && waited) { clearResult(); solve("new"); }
     }
     if (!busy && !result && $("pill").className === "") pill(stillTicks >= 2 ? "見ています" : "動いています");
   }
@@ -500,7 +517,7 @@ $("quit").onclick = async e => {
   if (!DIRECT && info.local) {
     try { await fetch("api/quit", {method: "POST"}); } catch (err) {}
     $("start").querySelector("p").innerHTML = "終了しました（Mac のサーバーも止めました）。<br>このタブは閉じてかまいません。もう一度使うときは 起動.command を開きます。";
-    $("go").style.display = "none"; $("phone").style.display = "none";
+    $("go").style.display = "none"; $("phone").style.display = "none"; $("quit").style.display = "none";
   } else {
     $("start").querySelector("p").innerHTML = "終了しました（カメラを止めました）。<br>もう一度使うときは「カメラを始める」を押します。";
   }
