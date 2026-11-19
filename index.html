@@ -79,6 +79,31 @@
   #quit { position: fixed; top: calc(env(safe-area-inset-top) + 10px); right: 10px; z-index: 30;
     background: #b91c1c; color: #fff; border: 2px solid rgba(255,255,255,.7); border-radius: 999px;
     padding: 9px 18px; font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 12px rgba(0,0,0,.5); }
+  /* 教材 */
+  #top #matbtn.on { background: rgba(4,120,87,.9); border-color: #34d399; }
+  /* 右上の終了ボタン（z-index 30）より下に置き、終了が隠れないようにする */
+  #mat { position: fixed; inset: 0; z-index: 25; display: none; align-items: flex-start; justify-content: center;
+    background: rgba(0,0,0,.6); padding: calc(env(safe-area-inset-top) + 62px) 0 calc(env(safe-area-inset-bottom) + 12px); }
+  #mat .panel { width: min(560px, calc(100% - 20px)); max-height: 100%; overflow: auto; background: #0f172a;
+    border: 1px solid rgba(255,255,255,.2); border-radius: 18px; padding: 16px 18px; font-size: 14px; line-height: 1.6; }
+  #mat h2 { margin: 0 0 6px; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+  #mat h2 span { flex: 1; }
+  #mat .row { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.1); }
+  #mat .row input { width: 22px; height: 22px; }
+  #mat .row .nm { flex: 1; word-break: break-all; }
+  #mat .row small { opacity: .7; }
+  #mat button, #mat .filebtn { background: #1e293b; color: var(--ink); border: 1px solid rgba(255,255,255,.25);
+    border-radius: 999px; padding: 7px 16px; font-size: 14px; cursor: pointer; display: inline-block; }
+  #mat .filebtn { background: #065f46; border-color: #34d399; font-weight: 700; }
+  #mat .primary { background: var(--ok); color: #052e1f; font-weight: 700; border: 0; }
+  #mat .del.sure { background: #b91c1c; }
+  #mat textarea, #mat input[type=text] { width: 100%; background: rgba(255,255,255,.06); color: var(--ink);
+    border: 1px solid rgba(255,255,255,.25); border-radius: 10px; padding: 8px; font-size: 15px; margin: 4px 0; }
+  #mat textarea { height: 90px; }
+  #matsum { background: rgba(255,255,255,.07); border-radius: 10px; padding: 8px 10px; margin: 10px 0; }
+  #materr { color: #fca5a5; min-height: 1em; margin: 6px 0; }
+  #start #startmat { background: #1e293b; color: var(--ink); font-size: 15px; padding: 10px 22px; font-weight: 700;
+    border: 1px solid rgba(255,255,255,.35); }
   #ver { position: fixed; bottom: calc(env(safe-area-inset-bottom) + 8px); left: 0; right: 0; font-size: 11px; opacity: .45; }
   #pinbox, #phone { display: none; flex-direction: column; gap: 10px; align-items: center; }
   #phone { background: rgba(255,255,255,.06); border-radius: 14px; padding: 12px 18px; font-size: 14px; line-height: 1.7; }
@@ -110,6 +135,7 @@
   <select id="cam" title="カメラ"></select>
   <select id="mode" title="AI"></select>
   <button id="wide" title="超広角カメラに切り替える">広角</button>
+  <button id="matbtn" title="答えの根拠にする学習教材">教材</button>
   <label><input type="checkbox" id="auto" checked>自動で読む</label>
   <label><input type="checkbox" id="voice" checked>声</label>
   <button id="now" title="Space">今すぐ読む</button>
@@ -124,7 +150,7 @@
 
 <div id="start">
   <h1>カメラ4択</h1>
-  <div id="ver">版 2026-11-20f</div>
+  <div id="ver">版 2026-11-20g</div>
   <p>問題をカメラに映すと、AI が読んで正解を映像の上に示します。<br>
      止めて映すと自動で読みます。画面を押すと今すぐ読みます。</p>
   <div id="pinbox"><div>Mac に出ている6桁の PIN を入れてください</div>
@@ -138,10 +164,29 @@
   </div>
   <div id="err"></div>
   <button id="go">カメラを始める</button>
+  <button id="startmat">教材を入れる</button>
   <div id="phone">スマホ（同じ Wi-Fi）の Safari・Chrome で開く<div id="phoneurls"></div>PIN <b id="phonepin"></b>
     <div style="opacity:.7;font-size:12px">警告が出たら「詳細」から開く。警告を消すには、スマホで開いたページの<br>
     <code>/ca.crt</code> を入れる（使い方.md）</div></div>
 </div>
+
+<div id="mat"><div class="panel">
+  <h2><span>教材（答えの根拠にする資料）</span><button class="primary" id="matclose2">閉じる</button></h2>
+  <div style="opacity:.85">入れた教材に書かれていることを根拠に、AI が正解を選びます。チェックを外した教材は使いません。
+    教材はこの端末のブラウザにだけ保存し、読むときに AI（Claude）へ一緒に送ります。</div>
+  <div id="matlist"></div>
+  <div id="matsum"></div>
+  <label class="filebtn">ファイル・写真を足す<input type="file" id="matfile" multiple hidden
+    accept=".txt,.md,.csv,.tsv,.json,.pdf,text/plain,text/markdown,text/csv,application/pdf,image/*"></label>
+  <div><small style="opacity:.7">使える種類：文字（.txt・.md・.csv）、PDF（100ページまで）、画像（教科書のページの写真など）。
+    Word・Excel は PDF にしてから足してください。</small></div>
+  <div style="margin-top:12px">文を貼って足す</div>
+  <input type="text" id="matname" placeholder="名前（例：第3章のまとめ）">
+  <textarea id="mattext" placeholder="ここに教材の文を貼る"></textarea>
+  <button id="mataddtext">この文を足す</button>
+  <div id="materr"></div>
+  <div style="text-align:right"><button id="matclose" class="primary">閉じる</button></div>
+</div></div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -333,7 +378,8 @@ function onDone(d, sec, yen, cap) {
     result = {...cap, d, shown: performance.now()}; shift = {x: 0, y: 0}; lost = false;
     // 解説は出さない（2026/11/20 指示）。確からしさは大きな正解の背景色と下の小さな字で示す
     const ans = d.answer_labels.join("・");
-    let sub = `確からしさ ${d.confidence || "中"}・${shortName(usingMode)}・${sec}秒・約${yen}円`;
+    const basis = matsOn().length && d.basis ? (d.basis === "教材" ? "・教材に基づく" : "・教材に無い（一般の知識）") : "";
+    let sub = `確からしさ ${d.confidence || "中"}${basis}・${shortName(usingMode)}・${sec}秒・約${yen}円`;
     if (firstAnswer) sub = `${shortName(usingMode)}で確かめた（${firstAnswer.mode}は ${firstAnswer.ans}${firstAnswer.ans === ans ? "・同じ" : "・変わった"}）・` + sub;
     firstAnswer = "";
     if (needRecheck(d)) {                    // 自信なし → 同じ画像を別のモデルで読み直す
@@ -380,8 +426,17 @@ async function solve(reason) {
 
 async function solveServer(image, cw, ch, cap) {
   try {
-    const res = await fetch("api/solve", {method: "POST", headers: {"Content-Type": "application/json", "X-Pin": pinValue()},
-      body: JSON.stringify({image, w: cw, h: ch, mode: usingMode, voice: $("voice").checked})});
+    let res;
+    for (let i = 0; i < 2; i++) {
+      res = await fetch("api/solve", {method: "POST", headers: {"Content-Type": "application/json", "X-Pin": pinValue()},
+        body: JSON.stringify({image, w: cw, h: ch, mode: usingMode, voice: $("voice").checked,
+                              materials: matsOn().map(m => m.id)})});
+      if (res.status !== 409) break;
+      const need = (await res.json()).need || [];      // Mac がまだ持っていない教材を送る（起動し直した後など）
+      pill("教材を Mac に送っています…", "busy");
+      try { for (const id of need) { const m = MATS.find(x => x.id === id); if (m) await serverPutMaterial(m); } }
+      catch (e) { return onError("教材を送れません：" + e.message); }
+    }
     if (res.status === 401) { const e = await res.json(); localStorage.removeItem("cam4-pin"); return onError(e.error, true); }
     if (res.status === 402) { const e = await res.json(); return onError(e.error, true); }
     const rd = res.body.getReader(), dec = new TextDecoder(); let buf = "";
@@ -430,7 +485,7 @@ async function solveDirect(image, w, h, cap) {
   const model = CFG.modes[usingMode].model, t0 = performance.now();
   const params = {
     model, max_tokens: 16000, system: CFG.system,
-    messages: [{role: "user", content: [
+    messages: [{role: "user", content: [...materialBlocks(matsOn()),
       {type: "image", source: {type: "base64", media_type: "image/jpeg", data: image}},
       {type: "text", text: CFG.user_text.replace("{w}", w).replace("{h}", h)}]}],
     output_config: {effort: CFG.effort, format: {type: "json_schema", schema: CFG.schema}},
@@ -449,8 +504,9 @@ async function solveDirect(image, w, h, cap) {
       onAnswer(labels, $("voice").checked ? voiceFor(labels, c ? c[1] : "") : "", c ? c[1] : "");
     });
     const r = await stream.finalMessage();
-    const p = CFG.prices_per_mtok_usd[model];
-    const yen = ((r.usage.input_tokens || 0) * p.in + (r.usage.output_tokens || 0) * p.out) / 1e6 * CFG.yen_per_usd;
+    const u = r.usage;
+    const yen = yenFor(model, {in: u.input_tokens || 0, out: u.output_tokens || 0,
+                               cw: u.cache_creation_input_tokens || 0, cr: u.cache_read_input_tokens || 0});
     addSpent(yen);
     if (r.stop_reason === "refusal") return onError("AI がこの画像への答えを断りました");
     if (r.stop_reason === "max_tokens") return onError("返事が長すぎて途中で切れました");
@@ -458,6 +514,166 @@ async function solveDirect(image, w, h, cap) {
     onDone(d, ((performance.now() - t0) / 1000).toFixed(1), yen.toFixed(2), cap);
   } catch (e) { onError(apiMessage(e)); }
 }
+// 費用の目安（円）。in＝キャッシュ外の入力、cw＝キャッシュに書いた入力、cr＝キャッシュから読んだ入力
+function yenFor(model, u) {
+  const p = CFG.prices_per_mtok_usd[model], cw = u.cw || 0, cr = u.cr || 0;
+  let usd = (u.in * p.in + cw * (p.cache_write ?? p.in) + cr * (p.cache_read ?? p.in) + u.out * p.out) / 1e6;
+  if (p.long_over && u.in + cw + cr > p.long_over) usd *= p.long_factor;   // Haiku は10万トークンを超えると上がる
+  return usd * CFG.yen_per_usd;
+}
+
+// ---- 教材：この端末のブラウザ（IndexedDB）に保存し、読むたびに問題の画像の前に付けて送る。
+// 最後にキャッシュの印を付けるので、5分以内に同じ教材でまた読むと、教材の分は約1/10〜1/20の料金になる。
+let MATS = [], matOpen = false;
+const matsOn = () => MATS.filter(m => m.on);
+const KIND = {text: "文字", pdf: "PDF", image: "画像"};
+let dbp = null;
+function db() {
+  return dbp || (dbp = new Promise((ok, ng) => {
+    const r = indexedDB.open("cam4", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("mats", {keyPath: "id"});
+    r.onsuccess = () => ok(r.result); r.onerror = () => ng(r.error);
+  }));
+}
+async function matTx(mode, fn) {
+  const d = await db();
+  return new Promise((ok, ng) => {
+    const t = d.transaction("mats", mode), r = fn(t.objectStore("mats"));
+    t.oncomplete = () => ok(r.result); t.onerror = () => ng(t.error);
+  });
+}
+const matAll = async () => (await matTx("readonly", s => s.getAll())).sort((a, b) => a.added - b.added);
+const matPut = m => matTx("readwrite", s => s.put(m));
+const matDel = id => matTx("readwrite", s => s.delete(id));
+async function loadMats() { try { MATS = await matAll(); } catch (e) { MATS = []; } updateMatButtons(); }
+function itemBlocks(m) {           // 教材1点を AI に送る形にする（server.py の item_blocks と同じ）
+  if (m.kind === "text") return [{type: "document", title: m.name, source: {type: "text", media_type: "text/plain", data: m.data}}];
+  if (m.kind === "pdf") return [{type: "document", title: m.name, source: {type: "base64", media_type: "application/pdf", data: m.data}}];
+  return [{type: "text", text: "教材の画像：" + m.name}, {type: "image", source: {type: "base64", media_type: "image/jpeg", data: m.data}}];
+}
+function materialBlocks(list) {
+  if (!list.length) return [];
+  const b = [{type: "text", text: CFG.material_head}, ...list.flatMap(itemBlocks)];
+  b[b.length - 1] = {...b[b.length - 1], cache_control: {type: "ephemeral"}};
+  return b;
+}
+function estimateTokens(m) { return m.kind === "text" ? m.data.length : m.kind === "image" ? 1600 : Math.round(m.data.length * 0.75 / 100); }
+async function serverPutMaterial(m) {
+  const res = await fetch("api/material", {method: "POST", headers: {"Content-Type": "application/json", "X-Pin": pinValue()},
+    body: JSON.stringify({id: m.id, kind: m.kind, name: m.name, data: m.data})});
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(d.error || `Mac が受け取れませんでした（${res.status}）`); e.bad = true; throw e; }
+  return d.tokens;
+}
+async function countMaterial(m) {  // トークン数を数える（無料）。数えられなければ目安にする
+  try {
+    if (!DIRECT) { m.tokens = await serverPutMaterial(m); m.est = false; return; }
+    if (client) {
+      const r = await client.messages.countTokens({model: CFG.modes.haiku.model, messages: [{role: "user", content: itemBlocks(m)}]});
+      m.tokens = r.input_tokens; m.est = false; return;
+    }
+  } catch (e) {
+    if (e.bad) throw e;
+    if (Anthropic && e instanceof Anthropic.BadRequestError) throw new Error(`${m.name}：この教材は使えません（${e.message}）`);
+  }
+  m.tokens = estimateTokens(m); m.est = true;
+}
+async function recountEstimates() { for (const m of MATS) if (m.est) { await countMaterial(m); await matPut(m); } }
+function readAs(f, how) {
+  return new Promise((ok, ng) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ng(r.error); r[how](f); });
+}
+function shrinkImage(f) {          // 長い辺を1568ピクセルまでにして JPEG にする（AI が読める大きさ。大きいと費用だけ増える）
+  return new Promise((ok, ng) => {
+    const url = URL.createObjectURL(f), img = new Image();
+    img.onload = () => {
+      const sc = Math.min(1, 1568 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement("canvas");
+      c.width = Math.round(img.naturalWidth * sc); c.height = Math.round(img.naturalHeight * sc);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      ok(c.toDataURL("image/jpeg", 0.85).split(",")[1]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); ng(new Error(f.name + "：この画像は読めません")); };
+    img.src = url;
+  });
+}
+async function readMaterialFile(f) {
+  const name = f.name || "教材";
+  if (f.type === "application/pdf" || /\.pdf$/i.test(name)) {
+    if (f.size > 20e6) throw new Error(name + "：PDF が大きすぎます（20MB まで）");
+    return {kind: "pdf", name, data: (await readAs(f, "readAsDataURL")).split(",")[1]};
+  }
+  if (f.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(name)) return {kind: "image", name, data: await shrinkImage(f)};
+  if (/^text\//.test(f.type) || /\.(txt|md|csv|tsv|json)$/i.test(name)) {
+    const buf = await readAs(f, "readAsArrayBuffer");
+    let text; try { text = new TextDecoder("utf-8", {fatal: true}).decode(buf); } catch (e) { text = new TextDecoder("shift_jis").decode(buf); }
+    return {kind: "text", name, data: text};
+  }
+  throw new Error(name + "：この種類は使えません（文字・PDF・画像だけ。Word・Excel は PDF にしてから）");
+}
+async function addMaterial(m) {
+  m.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  m.on = true; m.added = Date.now(); m.size = m.data.length;
+  if (!m.data.trim()) throw new Error(m.name + "：中身が空です");
+  if (matsOn().reduce((s, x) => s + x.size, 0) + m.size > 24e6)
+    throw new Error("教材が大きすぎます（使う教材を合わせて約18MBまで）。使わない教材のチェックを外してください");
+  await countMaterial(m);
+  await matPut(m); MATS.push(m); renderMats();
+}
+function matSummary() {
+  const on = matsOn();
+  if (!on.length) return "使う教材はありません。教材なしで、AI の知識だけで答えます。";
+  const T = on.reduce((s, m) => s + (m.tokens || 0), 0) + 30, h = CFG.modes.haiku.model, o = CFG.modes.opus.model;
+  const f = (model, key, dig) => yenFor(model, {in: 0, out: 0, [key]: T}).toFixed(dig);
+  let s = `使う教材：${on.length}点・約${T.toLocaleString()}トークン${on.some(m => m.est) ? "（一部は目安）" : ""}<br>
+    1回に増える費用の目安：Haiku 約${f(h, "cr", 2)}円・Opus 約${f(o, "cr", 1)}円（5分以内に続けて読むとき）<br>
+    最初の1回と、5分あけた後の1回：Haiku 約${f(h, "cw", 2)}円・Opus 約${f(o, "cw", 1)}円`;
+  if (T > 100000) s += "<br>10万トークンを超えているので、Haiku の料金が5倍になっています。";
+  if (T > 900000) s += "<br>AI が一度に読める量（約100万トークン）に近いので、教材を減らしてください。";
+  return s;
+}
+function updateMatButtons() {
+  const n = matsOn().length;
+  $("matbtn").textContent = n ? `教材 ${n}` : "教材"; $("matbtn").classList.toggle("on", n > 0);
+  $("startmat").textContent = n ? `教材（${n}点を使う）` : "教材を入れる";
+}
+function renderMats() {
+  $("matlist").innerHTML = MATS.length ? MATS.map(m => `<div class="row"><input type="checkbox" data-on="${m.id}" ${m.on ? "checked" : ""}>
+    <span class="nm">${esc(m.name)}<br><small>${KIND[m.kind]}・約${(m.tokens || 0).toLocaleString()}トークン${m.est ? "（目安）" : ""}</small></span>
+    <button class="del" data-del="${m.id}">消す</button></div>`).join("")
+    : '<div style="opacity:.6;padding:10px 0">まだ教材はありません</div>';
+  $("matsum").innerHTML = matSummary(); updateMatButtons();
+}
+function openMat(e) { if (e) e.stopPropagation(); matOpen = true; $("materr").textContent = ""; renderMats(); $("mat").style.display = "flex"; }
+function closeMat() { matOpen = false; $("mat").style.display = "none"; stillTicks = 0; }
+$("matbtn").onclick = openMat;
+$("startmat").onclick = openMat;
+$("matclose").onclick = closeMat;
+$("matclose2").onclick = closeMat;
+$("mat").onclick = e => { if (e.target === $("mat")) closeMat(); };
+$("matlist").onchange = async e => {
+  const m = MATS.find(x => x.id === e.target.dataset.on); if (!m) return;
+  m.on = e.target.checked; await matPut(m); renderMats();
+};
+$("matlist").onclick = async e => {
+  const b = e.target.closest("[data-del]"); if (!b) return;
+  if (!b.classList.contains("sure")) { b.classList.add("sure"); b.textContent = "本当に消す"; return; }   // 2回押して消す
+  await matDel(b.dataset.del); MATS = MATS.filter(x => x.id !== b.dataset.del); renderMats();
+};
+$("matfile").onchange = async () => {
+  const files = [...$("matfile").files]; $("matfile").value = "";
+  for (const f of files) {
+    $("materr").textContent = `${f.name} を読んでいます…`;
+    try { await addMaterial(await readMaterialFile(f)); $("materr").textContent = ""; }
+    catch (e) { $("materr").textContent = e.message; return; }
+  }
+};
+$("mataddtext").onclick = async () => {
+  const text = $("mattext").value; if (!text.trim()) { $("materr").textContent = "文を貼ってください"; return; }
+  const name = $("matname").value.trim() || `貼った文 ${MATS.filter(m => m.kind === "text").length + 1}`;
+  $("materr").textContent = "数えています…";
+  try { await addMaterial({kind: "text", name, data: text}); $("mattext").value = ""; $("matname").value = ""; $("materr").textContent = ""; }
+  catch (e) { $("materr").textContent = e.message; }
+};
+
 // スマホだけで使うときの声（今は無し。決まったらここで声の URL を返す）
 function voiceFor(labels, confidence) { return ""; }
 
@@ -474,7 +690,7 @@ function tick() {
     const motion = diff(small, prevSmall); prevSmall = small;
     stillTicks = motion < STILL ? stillTicks + 1 : 0;
     if (result) track();
-    if ($("auto").checked && !busy && stillTicks >= STILL_TICKS) {
+    if ($("auto").checked && !busy && !matOpen && stillTicks >= STILL_TICKS) {
       const change = diff(small, sentSmall);
       const isNew = result ? lost : change > NEW_SCENE;   // 枠を追いかけられている間は読み直さない。見失ったか文字が変わったら読む
       // 読めなかった後は、画面が変わっても少し待つ。続けて読めないほど長く待つ（6・12・24・48・60秒）。
@@ -620,6 +836,7 @@ async function init() {
   if (!$("mode").value) $("mode").value = info.default_mode;
   $("voice").checked = localStorage.getItem("cam4-voice") !== "0";
   if (info.mock) $("mockbadge").style.display = "inline-block";
+  loadMats();
   if (info.month !== undefined) setCost(info.month, info.limit);
   if (DIRECT) {                               // キーと月の上限を入れる欄・設定ボタンを出す。声は今は無し
     $("keybox").style.display = "flex"; $("settings").style.display = "inline-block";
@@ -654,7 +871,7 @@ $("quit").onclick = async e => {
   if (!DIRECT && info.local) {
     try { await fetch("api/quit", {method: "POST"}); } catch (err) {}
     $("start").querySelector("p").innerHTML = "終了しました（Mac のサーバーも止めました）。<br>このタブは閉じてかまいません。もう一度使うときは 起動.command を開きます。";
-    $("go").style.display = "none"; $("phone").style.display = "none"; $("quit").style.display = "none";
+    $("go").style.display = "none"; $("phone").style.display = "none"; $("quit").style.display = "none"; $("startmat").style.display = "none";
   } else {
     $("start").querySelector("p").innerHTML = "終了しました（カメラを止めました）。<br>もう一度使うときは「カメラを始める」を押します。";
   }
@@ -675,6 +892,7 @@ $("go").onclick = async () => {
         await client.messages.countTokens({model: CFG.modes.haiku.model, messages: [{role: "user", content: "a"}]});
       } catch (e) { client = null; $("err").textContent = apiMessage(e); return; }
       localStorage.setItem("cam4-key", key); $("apikey").value = ""; $("err").textContent = "";
+      recountEstimates().catch(() => {});      // キーが無い間に足した教材のトークン数を数え直す
     }
     setCost(spent(), limitYen());
   }
@@ -697,7 +915,8 @@ $("go").onclick = async () => {
   } catch (e) { $("start").querySelector("p").textContent = "カメラを開けません：" + e.message; }
 };
 addEventListener("keydown", e => {
-  if (e.target.tagName === "SELECT") return;
+  if (["SELECT", "INPUT", "TEXTAREA"].includes(e.target.tagName)) return;   // 文を打っている間は反応しない
+  if (matOpen) { if (e.code === "Escape") closeMat(); return; }
   if (e.code === "Space") { e.preventDefault(); solve("key"); }
   if (e.code === "Escape") clearResult();
 });
