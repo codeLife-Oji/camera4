@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>カメラ4択</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<style>
+  :root { --ok: #34d399; --ink: #f8fafc; --dim: rgba(15,23,42,.72); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--ink);
+    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  canvas#ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #top { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; align-items: center;
+    flex-wrap: wrap; z-index: 5; }
+  #top select, #top label, #top button { background: var(--dim); color: var(--ink); border: 1px solid rgba(255,255,255,.18);
+    border-radius: 999px; padding: 6px 12px; font-size: 13px; backdrop-filter: blur(8px); }
+  #top button { cursor: pointer; }
+  #top label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  #cost { margin-left: auto; font-size: 12px; opacity: .8; background: var(--dim); padding: 6px 10px; border-radius: 999px; }
+  #pill { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 5;
+    background: var(--dim); backdrop-filter: blur(10px); border-radius: 999px; padding: 10px 22px;
+    font-size: 16px; display: flex; gap: 10px; align-items: center; transition: all .25s; white-space: nowrap; }
+  #pill.answer { background: rgba(6,95,70,.88); font-size: 30px; font-weight: 700; padding: 12px 30px;
+    box-shadow: 0 0 40px rgba(52,211,153,.55); }
+  #pill.warn { background: rgba(127,29,29,.85); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); animation: breathe 1.6s infinite; }
+  #pill.busy .dot { background: #a78bfa; animation: breathe .6s infinite; }
+  @keyframes breathe { 0%,100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.15); } }
+  #card { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(720px, calc(100% - 24px));
+    background: var(--dim); backdrop-filter: blur(12px); border-radius: 18px; padding: 10px 16px; z-index: 5;
+    font-size: 14px; cursor: pointer; line-height: 1.6; display: none; }
+  #card .q { font-weight: 700; color: #fff; margin-bottom: 4px; }
+  /* 解説の背景色で確からしさを示す：高＝緑、中＝黄、低＝赤 */
+  #card.conf-high { background: rgba(4,120,87,.88); }
+  #card.conf-mid { background: rgba(161,98,7,.9); }
+  #card.conf-low { background: rgba(153,27,27,.9); }
+  #card .badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+    background: rgba(255,255,255,.22); margin-right: 6px; vertical-align: 1px; }
+  #card ul { margin: 0 0 6px; padding: 0; list-style: none; }
+  #card li { padding: 2px 8px; border-radius: 8px; }
+  #card li.ok { background: rgba(52,211,153,.25); color: #bbf7d0; font-weight: 700; }
+  #card .ex { opacity: .9; font-size: 14px; }
+  #card .meta { opacity: .6; font-size: 12px; margin-top: 4px; }
+  #start { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 16px; background: radial-gradient(circle at 50% 40%, #1e293b, #000); text-align: center; padding: 24px; }
+  #start h1 { margin: 0; font-size: 28px; }
+  #start p { margin: 0; opacity: .8; line-height: 1.7; }
+  #start button { font-size: 18px; padding: 14px 32px; border-radius: 999px; border: 0; background: var(--ok);
+    color: #052e1f; font-weight: 700; cursor: pointer; }
+  #mockbadge { display: none; background: #b45309; }
+  #start input { font-size: 22px; letter-spacing: 6px; text-align: center; width: 180px; padding: 10px; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.08); color: var(--ink); }
+  #keybox { display: none; flex-direction: column; gap: 8px; align-items: center; width: min(420px, 100%); font-size: 14px; }
+  #keybox input { font-size: 15px; letter-spacing: 0; width: 100%; text-align: left; }
+  #keybox small { opacity: .7; line-height: 1.6; }
+  #keybox a { color: #93c5fd; }
+  #settings { display: none; }
+  #pinbox, #phone { display: none; flex-direction: column; gap: 10px; align-items: center; }
+  #phone { background: rgba(255,255,255,.06); border-radius: 14px; padding: 12px 18px; font-size: 14px; line-height: 1.7; }
+  #phone code { font-size: 15px; user-select: all; }
+  #phone b { font-size: 20px; letter-spacing: 3px; }
+  #err { color: #fca5a5; min-height: 1em; }
+  /* スマホ：画面いっぱいに映し、上の欄を小さくする */
+  @media (max-width: 700px) {
+    video { object-fit: cover; }
+    #top { top: calc(env(safe-area-inset-top) + 6px); left: 6px; right: 6px; gap: 5px; }
+    #top select, #top label, #top button { font-size: 12px; padding: 5px 9px; }
+    #top select { max-width: 46vw; }
+    #now { display: none; }
+    #cost { font-size: 11px; padding: 4px 8px; }
+    #pill { top: calc(env(safe-area-inset-top) + 92px); font-size: 14px; }
+    #pill.answer { font-size: 26px; padding: 10px 24px; }
+    #card { bottom: calc(env(safe-area-inset-bottom) + 10px); font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="v" playsinline muted></video>
+  <canvas id="ov"></canvas>
+</div>
+
+<div id="top">
+  <select id="cam" title="カメラ"></select>
+  <select id="mode" title="AI"></select>
+  <label><input type="checkbox" id="auto" checked>自動で読む</label>
+  <label><input type="checkbox" id="voice" checked>声</label>
+  <button id="now" title="Space">今すぐ読む</button>
+  <button id="settings">設定</button>
+  <span id="mockbadge" style="font-size:12px;padding:6px 10px;border-radius:999px">試し（AI を呼んでいません）</span>
+  <span id="cost"></span>
+</div>
+<div id="pill"><span class="dot"></span><span id="pilltext">準備中</span></div>
+<div id="card"></div>
+
+<div id="start">
+  <h1>カメラ4択</h1>
+  <p>問題をカメラに映すと、AI が読んで正解を映像の上に示します。<br>
+     止めて映すと自動で読みます。画面を押すと今すぐ読みます。</p>
+  <div id="pinbox"><div>Mac に出ている6桁の PIN を入れてください</div>
+    <input id="pin" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>
+  <div id="keybox">
+    <div>Claude の API キー（このスマホのブラウザにだけ保存）</div>
+    <input id="apikey" type="password" autocomplete="off" placeholder="sk-ant-…">
+    <div>月の上限（円）<input id="limit" inputmode="numeric" style="width:110px;text-align:center"></div>
+    <small>このアプリ専用のキーを作って入れてください。使わなくなったら Console で無効にできます。<br>
+      <a href="#" id="forget">このスマホからキーを消す</a></small>
+  </div>
+  <div id="err"></div>
+  <button id="go">カメラを始める</button>
+  <div id="phone">スマホ（同じ Wi-Fi）の Safari・Chrome で開く<div id="phoneurls"></div>PIN <b id="phonepin"></b>
+    <div style="opacity:.7;font-size:12px">警告が出たら「詳細」から開く。警告を消すには、スマホで開いたページの<br>
+    <code>/ca.crt</code> を入れる（使い方.md）</div></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const v = $("v"), ov = $("ov"), ctx = ov.getContext("2d");
+
+// ---- 見張りの設定（数字を変えると反応の速さが変わる）
+const TICK_MS = 120;          // 映像を見る間隔
+const STILL = 5;              // これより動きが小さければ「止まっている」（0〜255の平均差）
+const STILL_TICKS = 6;        // 止まっている回数がこれに届いたら読む（約0.7秒）
+const NEW_SCENE = 14;         // 前に読んだ画面とこれ以上違えば新しい問題とみなす
+const RETRY_MS = 4000;        // 読めなかったとき、同じ画面で読み直すまでの間
+const LOST = 30;              // 追いかけの差がこれを超えたら枠を薄くする
+const CHANGED = 35;           // 選択肢の文字の差（輪郭の差）がこれを超えたら別の問題とみなす（試しでは同じ問題0〜15、別の問題57）
+
+let info = {}, busy = false, stream = null;
+let stillTicks = 0, prevSmall = null, sentSmall = null, lastSendAt = 0, lastFound = true;
+let result = null;            // {d, cw, ch, ref, refW, refH, shown}
+let shift = {x: 0, y: 0}, lost = false;
+let scanStart = 0;
+
+// ---- 小さな灰色の画像を取る
+const work = document.createElement("canvas"), wctx = work.getContext("2d", {willReadFrequently: true});
+function gray(w) {
+  const h = Math.round(w * v.videoHeight / v.videoWidth);
+  work.width = w; work.height = h;
+  wctx.drawImage(v, 0, 0, w, h);
+  const px = wctx.getImageData(0, 0, w, h).data, g = new Uint8Array(w * h);
+  for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = (px[j] * 77 + px[j + 1] * 150 + px[j + 2] * 29) >> 8;
+  return {g, w, h};
+}
+function diff(a, b) {
+  if (!a || !b || a.g.length !== b.g.length) return 255;
+  let s = 0; for (let i = 0; i < a.g.length; i++) s += Math.abs(a.g[i] - b.g[i]);
+  return s / a.g.length;
+}
+
+// ---- 枠を手ぶれに合わせて動かす（読んだときの画面と今の画面のずれを探す）
+function track() {
+  if (!result || !result.ref) return;
+  const cur = gray(result.refW), ref = result.ref, W = result.refW, H = result.refH;
+  // 選択肢の枠をまとめた範囲を、紙の端が入るくらいまで広げて見本にする
+  // （文字の行だけだと横にずらしても似て見え、位置を取り違える）
+  const k = W / result.cw; let x0 = W, y0 = H, x1 = 0, y1 = 0;
+  for (const c of result.d.choices) { const b = c.box;
+    x0 = Math.min(x0, b.x0 * k); y0 = Math.min(y0, b.y0 * k); x1 = Math.max(x1, b.x1 * k); y1 = Math.max(y1, b.y1 * k); }
+  const m = Math.max(30, 0.4 * Math.max(x1 - x0, y1 - y0));
+  x0 = Math.max(0, (x0 - m) | 0); y0 = Math.max(0, (y0 - m) | 0);
+  x1 = Math.min(W - 1, (x1 + m) | 0); y1 = Math.min(H - 1, (y1 + m) | 0);
+  if (x1 - x0 < 8 || y1 - y0 < 8) return;
+  const total = Math.ceil((y1 - y0 + 1) / 3) * Math.ceil((x1 - x0 + 1) / 3);
+  const cost = (dx, dy) => {
+    let s = 0, n = 0;
+    for (let y = y0; y <= y1; y += 3) { const yy = y + dy; if (yy < 0 || yy >= H) continue;
+      for (let x = x0; x <= x1; x += 3) { const xx = x + dx; if (xx < 0 || xx >= W) continue;
+        s += Math.abs(ref.g[y * W + x] - cur.g[yy * W + xx]); n++; } }
+    return n > total * 0.6 ? s / n : 255;     // 見本の多くが画面の外に出る位置は選ばない
+  };
+  // 前回の位置のまわりを探す。同じくらい似ていれば、前回に近い位置を選ぶ
+  const cx = Math.round(shift.x * k), cy = Math.round(shift.y * k), R = 40;
+  const score = (dx, dy) => cost(dx, dy) + 0.03 * Math.hypot(dx - cx, dy - cy);
+  let best = {dx: cx, dy: cy, c: score(cx, cy)};
+  for (let dy = cy - R; dy <= cy + R; dy += 3) for (let dx = cx - R; dx <= cx + R; dx += 3) {
+    const c = score(dx, dy); if (c < best.c) best = {dx, dy, c}; }
+  for (let dy = best.dy - 2; dy <= best.dy + 2; dy++) for (let dx = best.dx - 2; dx <= best.dx + 2; dx++) {
+    const c = score(dx, dy); if (c < best.c) best = {dx, dy, c}; }
+  best.c = cost(best.dx, best.dy);
+  // 文字が同じかを見る：選択肢の範囲だけで、明るさの変わり目（文字の輪郭）を比べる
+  const bx0 = Math.max(1, (x0 + m) | 0), by0 = Math.max(1, (y0 + m) | 0);
+  const bx1 = Math.min(W - 2, (x1 - m) | 0), by1 = Math.min(H - 2, (y1 - m) | 0);
+  const edge = (g, i) => Math.abs(g[i + 1] - g[i - 1]) + Math.abs(g[i + W] - g[i - W]);
+  let es = 0, en = 0;
+  for (let y = by0; y <= by1; y++) { const yy = y + best.dy; if (yy < 1 || yy >= H - 1) continue;
+    for (let x = bx0; x <= bx1; x++) { const xx = x + best.dx; if (xx < 1 || xx >= W - 1) continue;
+      es += Math.abs(edge(ref.g, y * W + x) - edge(cur.g, yy * W + xx)); en++; } }
+  const content = en ? es / en : 255;
+  window.trackInfo = {cost: +best.c.toFixed(1), content: +content.toFixed(1)};
+  lost = best.c > LOST || content > CHANGED;
+  if (!lost) { shift.x += (best.dx / k - shift.x) * 0.6; shift.y += (best.dy / k - shift.y) * 0.6; }
+}
+
+// ---- 表示
+function videoRect() {
+  // video の見せ方（contain＝全体を入れる、cover＝画面いっぱい・はみ出しは切る）に合わせて位置を出す
+  const cw = ov.clientWidth, ch = ov.clientHeight, ar = v.videoWidth / v.videoHeight;
+  const cover = getComputedStyle(v).objectFit === "cover";
+  let w = cw, h = cw / ar; if (cover ? h < ch : h > ch) { h = ch; w = ch * ar; }
+  return {x: (cw - w) / 2, y: (ch - h) / 2, w, h};
+}
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+function draw() {
+  const dpr = devicePixelRatio || 1;
+  if (ov.width !== ov.clientWidth * dpr) { ov.width = ov.clientWidth * dpr; ov.height = ov.clientHeight * dpr; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, ov.clientWidth, ov.clientHeight);
+  if (!v.videoWidth) return requestAnimationFrame(draw);
+  const r = videoRect(), now = performance.now();
+  if (busy) {                                   // 読み取り中は光の帯を流す
+    const t = ((now - scanStart) % 1400) / 1400, y = r.y + r.h * t;
+    const g = ctx.createLinearGradient(0, y - 60, 0, y + 6);
+    g.addColorStop(0, "rgba(167,139,250,0)"); g.addColorStop(1, "rgba(167,139,250,.45)");
+    ctx.fillStyle = g; ctx.fillRect(r.x, y - 60, r.w, 66);
+  }
+  if (result && result.d.found) {
+    const s = r.w / result.cw, sx = shift.x, sy = shift.y;   // shift は読んだ画像のピクセル
+    const age = Math.min(1, (now - result.shown) / 500), alpha = lost ? 0.25 : 1;
+    const ok = new Set(result.d.answer_labels.map(norm));
+    for (const c of result.d.choices) {
+      const b = c.box, x = r.x + (b.x0 + sx) * s, y = r.y + (b.y0 + sy) * s, w = (b.x1 - b.x0) * s, h = (b.y1 - b.y0) * s;
+      const isOk = ok.has(norm(c.label));
+      ctx.globalAlpha = alpha * (isOk ? 1 : 0.55 * age);
+      if (isOk) {
+        const pulse = 1 + 0.5 * Math.sin(now / 260);
+        ctx.shadowColor = "rgba(52,211,153,.9)"; ctx.shadowBlur = 18 * pulse;
+        ctx.strokeStyle = "#34d399"; ctx.lineWidth = 4 + (1 - age) * 8;
+        roundRect(x - 6, y - 6, w + 12, h + 12, 10); ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "rgba(52,211,153,.14)"; ctx.fill();
+        const tag = "正解 " + c.label; ctx.font = "bold 18px -apple-system, 'Hiragino Sans'";
+        const tw = ctx.measureText(tag).width + 18;
+        // 札は枠の右に置き、ほかの選択肢の文字を隠さない（右に入らなければ左）
+        let tx = x + w + 14; if (tx + tw > r.x + r.w) tx = x - 14 - tw;
+        const ty = y + h / 2 - 14;
+        ctx.fillStyle = "#059669"; roundRect(tx, ty, tw, 28, 8); ctx.fill();
+        ctx.fillStyle = "#fff"; ctx.fillText(tag, tx + 9, ty + 20);
+      } else {
+        ctx.setLineDash([6, 6]); ctx.strokeStyle = "rgba(100,116,139,.95)"; ctx.lineWidth = 2;
+        roundRect(x - 3, y - 3, w + 6, h + 6, 6); ctx.stroke(); ctx.setLineDash([]);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+  requestAnimationFrame(draw);
+}
+function norm(s) { return (s || "").normalize("NFKC").toUpperCase().replace(/[()（）\[\]［］.．、。:：\s]/g, ""); }
+function esc(s) { return (s || "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c])); }
+
+function pill(text, cls = "") { $("pilltext").textContent = text; $("pill").className = cls; }
+function showCard(d, meta) {
+  const ok = new Set(d.answer_labels.map(norm));
+  // 選択肢は映像の上に枠で出ているので、ここは正解の文と理由だけにして映像を隠さない
+  const okText = d.choices.filter(c => ok.has(norm(c.label))).map(c => `${esc(c.label)}　${esc(c.text)}`).join("<br>");
+  const conf = {"高": "high", "中": "mid", "低": "low"}[d.confidence] || "mid";
+  $("card").className = "conf-" + conf;
+  $("card").innerHTML = `<div class="q"><span class="badge">確からしさ ${esc(d.confidence || "中")}</span>${okText}</div>
+    <div class="ex">${esc(d.explanation)}</div><div class="meta">${esc(d.question)}・${esc(meta)}</div>`;
+  $("card").style.display = "block";
+}
+function setCost(month, limit) { $("cost").textContent = `今月 ${month.toFixed(1)}円 / ${limit}円`; }
+function clearResult() { result = null; shift = {x: 0, y: 0}; $("card").style.display = "none"; pill("見ています"); }
+
+// ---- 読む
+// 返事の受け取り（Mac のサーバー経由でも、スマホから直接でも同じ）
+function onAnswer(labels, audio) {
+  pill("正解 " + labels.join("・"), "answer");
+  if (audio) { sound.src = audio; sound.play().catch(() => {}); }
+}
+function onDone(d, sec, yen, cap) {
+  lastFound = d.found;
+  if (d.found) {
+    result = {...cap, d, shown: performance.now()}; shift = {x: 0, y: 0}; lost = false;
+    pill("正解 " + d.answer_labels.join("・") + (d.confidence === "低" ? "（自信なし）" : ""), "answer");
+    showCard(d, `${sec}秒・約${yen}円`);
+  } else {
+    pill(d.reason || "問題が読めません", "warn");
+  }
+}
+function onError(msg, stopAuto) { lastFound = false; pill(msg, "warn"); if (stopAuto) $("auto").checked = false; }
+
+async function solve(reason) {
+  if (busy || !v.videoWidth) return;
+  busy = true; scanStart = performance.now(); lastSendAt = Date.now();
+  sentSmall = gray(64);
+  const sc = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight));   // 長い辺を1280までにする（スマホの縦長も）
+  const cw = Math.round(v.videoWidth * sc), ch = Math.round(v.videoHeight * sc);
+  const c2 = document.createElement("canvas"); c2.width = cw; c2.height = ch;
+  c2.getContext("2d").drawImage(v, 0, 0, cw, ch);
+  const refW = 480, ref = gray(refW);
+  const cap = {cw, ch, ref, refW, refH: ref.h};
+  const image = c2.toDataURL("image/jpeg", 0.85).split(",")[1];
+  pill("読み取っています…", "busy");
+  try {
+    if (DIRECT) await solveDirect(image, cw, ch, cap);
+    else await solveServer(image, cw, ch, cap);
+  } finally { busy = false; }
+}
+
+async function solveServer(image, cw, ch, cap) {
+  try {
+    const res = await fetch("api/solve", {method: "POST", headers: {"Content-Type": "application/json", "X-Pin": pinValue()},
+      body: JSON.stringify({image, w: cw, h: ch, mode: $("mode").value, voice: $("voice").checked})});
+    if (res.status === 401) { const e = await res.json(); localStorage.removeItem("cam4-pin"); return onError(e.error, true); }
+    if (res.status === 402) { const e = await res.json(); return onError(e.error, true); }
+    const rd = res.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const {value, done} = await rd.read(); if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let i; while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line.trim()) continue;
+        const m = JSON.parse(line);
+        if (m.type === "answer") onAnswer(m.labels, m.audio);
+        else if (m.type === "done") { if (m.month !== undefined) setCost(m.month, m.limit); onDone(m.result, m.sec, m.yen, cap); }
+        else if (m.type === "error") onError(m.error);
+      }
+    }
+  } catch (e) { onError("サーバーにつながりません：" + e.message); }
+}
+
+// ---- スマホだけで使う（Mac のサーバーが無いとき）：このブラウザから Claude を直接呼ぶ
+let DIRECT = false, CFG = null, client = null, Anthropic = null;
+const ANSWER_RE = /"answer_labels"\s*:\s*(\[[^\]]*\])/, CONF_RE = /"confidence"\s*:\s*"([^"]*)"/;
+const monthKey = () => "cam4-spent-" + new Date().toISOString().slice(0, 7);
+const spent = () => +(localStorage.getItem(monthKey()) || 0);
+const limitYen = () => +(localStorage.getItem("cam4-limit") || 1000);
+function addSpent(yen) { localStorage.setItem(monthKey(), (spent() + yen).toFixed(2)); setCost(spent(), limitYen()); }
+async function makeClient(key) {
+  if (!Anthropic) Anthropic = (await import("./anthropic.js")).Anthropic;
+  // キーはこのスマホに入れた本人のものだけを使う（ページにキーは入っていない）
+  client = new Anthropic({apiKey: key, dangerouslyAllowBrowser: true, maxRetries: 1});
+}
+function apiMessage(e) {
+  if (Anthropic && e instanceof Anthropic.AuthenticationError) return "API キーが正しくありません（設定から入れ直す）";
+  if (Anthropic && e instanceof Anthropic.RateLimitError) return "API の回数の上限に当たりました。少し待ってください";
+  if (Anthropic && e instanceof Anthropic.APIConnectionError) return "API につながりません。電波を確かめてください";
+  if (Anthropic && e instanceof Anthropic.APIError) return `API のエラー（${e.status}）：${e.message}`;
+  return "読み取りに失敗しました：" + e.message;
+}
+function clampBoxes(d, w, h) {
+  for (const c of d.choices || []) { const b = c.box || {};
+    const cx = x => Math.max(0, Math.min(w, x || 0)), cy = y => Math.max(0, Math.min(h, y || 0));
+    const [x0, x1] = [cx(b.x0), cx(b.x1)].sort((a, b) => a - b), [y0, y1] = [cy(b.y0), cy(b.y1)].sort((a, b) => a - b);
+    c.box = {x0, y0, x1, y1}; }
+  return d;
+}
+async function solveDirect(image, w, h, cap) {
+  if (spent() >= limitYen()) return onError(`今月の費用の目安が上限（${limitYen()}円）に届いたので止めています`, true);
+  const model = CFG.modes[$("mode").value].model, t0 = performance.now();
+  const params = {
+    model, max_tokens: 16000, system: CFG.system,
+    messages: [{role: "user", content: [
+      {type: "image", source: {type: "base64", media_type: "image/jpeg", data: image}},
+      {type: "text", text: CFG.user_text.replace("{w}", w).replace("{h}", h)}]}],
+    output_config: {effort: CFG.effort, format: {type: "json_schema", schema: CFG.schema}},
+  };
+  try {
+    const stream = CFG.fallback_models.includes(model)     // 断られたときに別のモデルでやり直す
+      ? client.beta.messages.stream({...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default"})
+      : client.messages.stream(params);
+    let buf = "", sent = false;
+    stream.on("text", delta => {
+      buf += delta; if (sent) return;
+      const m = buf.match(ANSWER_RE); if (!m) return;
+      let labels; try { labels = JSON.parse(m[1]); } catch (e) { return; }
+      sent = true; if (!labels.length) return;
+      const c = buf.slice(m.index + m[0].length).match(CONF_RE);
+      onAnswer(labels, $("voice").checked ? voiceFor(labels, c ? c[1] : "") : "");
+    });
+    const r = await stream.finalMessage();
+    const p = CFG.prices_per_mtok_usd[model];
+    const yen = ((r.usage.input_tokens || 0) * p.in + (r.usage.output_tokens || 0) * p.out) / 1e6 * CFG.yen_per_usd;
+    addSpent(yen);
+    if (r.stop_reason === "refusal") return onError("AI がこの画像への答えを断りました");
+    if (r.stop_reason === "max_tokens") return onError("返事が長すぎて途中で切れました");
+    const d = clampBoxes(JSON.parse(r.content.filter(b => b.type === "text").map(b => b.text).join("")), w, h);
+    onDone(d, ((performance.now() - t0) / 1000).toFixed(1), yen.toFixed(2), cap);
+  } catch (e) { onError(apiMessage(e)); }
+}
+// スマホだけで使うときの声（今は無し。決まったらここで声の URL を返す）
+function voiceFor(labels, confidence) { return ""; }
+
+// ---- 見張り：止めて映したら読む、画面が変わったら読み直す
+function tick() {
+  if (v.videoWidth) {
+    const small = gray(64);
+    const motion = diff(small, prevSmall); prevSmall = small;
+    stillTicks = motion < STILL ? stillTicks + 1 : 0;
+    if (result) track();
+    if ($("auto").checked && !busy && stillTicks >= STILL_TICKS) {
+      const change = diff(small, sentSmall);
+      const isNew = result ? lost : change > NEW_SCENE;   // 枠を追いかけられている間は読み直さない。見失ったか文字が変わったら読む
+      const retry = !lastFound && Date.now() - lastSendAt > RETRY_MS;
+      if (isNew || retry) { if (isNew) clearResult(); solve(isNew ? "new" : "retry"); }
+    }
+    if (!busy && !result && $("pill").className === "") pill(stillTicks >= 2 ? "見ています" : "動いています");
+  }
+  setTimeout(tick, TICK_MS);
+}
+
+// ---- カメラ
+async function startCamera(deviceId) {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const video = deviceId ? {deviceId: {exact: deviceId}, width: {ideal: 1920}, height: {ideal: 1080}}
+                         : {facingMode: "environment", width: {ideal: 1920}, height: {ideal: 1080}};
+  stream = await navigator.mediaDevices.getUserMedia({video, audio: false});
+  v.srcObject = stream; await v.play();
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+  const curId = stream.getVideoTracks()[0].getSettings().deviceId;
+  $("cam").innerHTML = devs.map((d, i) => `<option value="${d.deviceId}" ${d.deviceId === curId ? "selected" : ""}>${esc(d.label || "カメラ " + (i + 1))}</option>`).join("");
+  localStorage.setItem("cam4-camera", curId || "");
+  clearResult(); prevSmall = null; sentSmall = null;
+}
+
+// 声は1つの audio を使い回す（iPhone は、押したときに一度鳴らした audio でないと後から鳴らせない）
+const sound = new Audio();
+function silentWav() {
+  const n = 800, b = new DataView(new ArrayBuffer(44 + n * 2)), w = (o, t) => [...t].forEach((c, i) => b.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); b.setUint32(4, 36 + n * 2, true); w(8, "WAVEfmt "); b.setUint32(16, 16, true); b.setUint16(20, 1, true);
+  b.setUint16(22, 1, true); b.setUint32(24, 8000, true); b.setUint32(28, 16000, true); b.setUint16(32, 2, true);
+  b.setUint16(34, 16, true); w(36, "data"); b.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([b], {type: "audio/wav"}));
+}
+function pinValue() { return localStorage.getItem("cam4-pin") || ""; }
+async function getInfo() {
+  if (DIRECT) return directInfo();
+  try {
+    const res = await fetch("api/info", {headers: {"X-Pin": pinValue()}});
+    if (res.ok && (res.headers.get("content-type") || "").includes("json")) return await res.json();
+  } catch (e) {}
+  DIRECT = true;                              // Mac のサーバーが無い（外出先など）→ スマホだけで使う
+  CFG = await (await fetch("config.json")).json();
+  return directInfo();
+}
+function directInfo() {
+  return {direct: true, mock: false, voice: false, pin_required: false, pin_ok: true, month: spent(), limit: limitYen(),
+          default_mode: CFG.default_mode, modes: Object.fromEntries(Object.entries(CFG.modes).map(([k, m]) => [k, m.name]))};
+}
+let wakeLock = null;
+async function keepAwake() {                 // 使っている間は画面を消さない
+  try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && wakeLock) keepAwake(); });
+
+async function init() {
+  info = await getInfo();
+  if (info.pin_required && !info.pin_ok) { $("pinbox").style.display = "flex"; $("pin").value = ""; }
+  if (info.local && info.phone_urls && info.phone_urls.length) {
+    $("phoneurls").innerHTML = info.phone_urls.map(u => `<code>${esc(u)}</code>`).join("<br>");
+    $("phonepin").textContent = info.pin; $("phone").style.display = "flex";
+  }
+  $("mode").innerHTML = Object.entries(info.modes).map(([k, n]) => `<option value="${k}">${n}</option>`).join("");
+  $("mode").value = localStorage.getItem("cam4-mode") || info.default_mode;
+  if (!$("mode").value) $("mode").value = info.default_mode;
+  $("voice").checked = localStorage.getItem("cam4-voice") !== "0";
+  if (info.mock) $("mockbadge").style.display = "inline-block";
+  if (info.month !== undefined) setCost(info.month, info.limit);
+  if (DIRECT) {                               // キーと月の上限を入れる欄・設定ボタンを出す。声は今は無し
+    $("keybox").style.display = "flex"; $("settings").style.display = "inline-block";
+    $("voice").parentElement.style.display = "none";
+    $("limit").value = limitYen();
+    const key = localStorage.getItem("cam4-key") || "";
+    $("apikey").placeholder = key ? "保存済み（変えるときだけ入れる）" : "sk-ant-…";
+  }
+}
+$("mode").onchange = () => localStorage.setItem("cam4-mode", $("mode").value);
+$("voice").onchange = () => localStorage.setItem("cam4-voice", $("voice").checked ? "1" : "0");
+$("cam").onchange = () => startCamera($("cam").value).catch(e => pill("カメラを開けません：" + e.message, "warn"));
+$("now").onclick = () => solve("button");
+$("card").onclick = e => { e.stopPropagation(); $("card").style.display = "none"; };   // 押すと隠す
+$("stage").onclick = () => solve("tap");     // 映像を押すと今すぐ読む
+$("settings").onclick = e => { e.stopPropagation(); $("apikey").value = ""; init(); $("start").style.display = "flex"; };
+$("forget").onclick = e => { e.preventDefault(); localStorage.removeItem("cam4-key"); client = null;
+  $("apikey").placeholder = "sk-ant-…"; $("err").textContent = "このスマホからキーを消しました"; };
+let started = false;
+$("go").onclick = async () => {
+  $("err").textContent = "";
+  if (DIRECT) {                               // キーを確かめる（数えるだけの無料の呼び出し）
+    const typed = $("apikey").value.trim(), key = typed || localStorage.getItem("cam4-key") || "";
+    const lim = parseInt($("limit").value, 10); if (lim > 0) localStorage.setItem("cam4-limit", lim);
+    if (!key) { $("err").textContent = "API キーを入れてください"; return; }
+    if (typed || !client) {
+      $("err").textContent = "キーを確かめています…";
+      try {
+        await makeClient(key);
+        await client.messages.countTokens({model: CFG.modes.haiku.model, messages: [{role: "user", content: "a"}]});
+      } catch (e) { client = null; $("err").textContent = apiMessage(e); return; }
+      localStorage.setItem("cam4-key", key); $("apikey").value = ""; $("err").textContent = "";
+    }
+    setCost(spent(), limitYen());
+  }
+  if (info.pin_required && !info.pin_ok) {   // スマホ：PIN を確かめてから始める
+    localStorage.setItem("cam4-pin", $("pin").value.trim());
+    info = await getInfo();
+    if (!info.pin_ok) { localStorage.removeItem("cam4-pin"); $("err").textContent = "PIN が違います"; return; }
+    $("pinbox").style.display = "none"; if (info.month !== undefined) setCost(info.month, info.limit);
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    $("err").textContent = "このページではカメラを使えません。https:// で開いているか確かめてください"; return;
+  }
+  try {
+    sound.src = silentWav(); sound.play().catch(() => {});   // 押したときに声の再生を許してもらう
+    keepAwake();
+    if (!stream) await startCamera(localStorage.getItem("cam4-camera") || undefined)
+      .catch(() => startCamera());           // 覚えていたカメラが無ければ既定のカメラ
+    $("start").style.display = "none";
+    if (!started) { started = true; requestAnimationFrame(draw); tick(); }
+  } catch (e) { $("start").querySelector("p").textContent = "カメラを開けません：" + e.message; }
+};
+addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT") return;
+  if (e.code === "Space") { e.preventDefault(); solve("key"); }
+  if (e.code === "Escape") clearResult();
+});
+init();
+</script>
+</body>
+</html>

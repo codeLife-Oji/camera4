@@ -1,0 +1,126 @@
+{
+ "_説明": "AI への指示・モデル・料金。Mac の server.py と、スマホだけで使うときの index.html の両方がこれを読む。",
+ "default_mode": "opus",
+ "effort": "low",
+ "yen_per_usd": 150,
+ "modes": {
+  "opus": {
+   "model": "claude-opus-5-5",
+   "name": "Opus 5.5（正確さ重視）"
+  },
+  "sonnet": {
+   "model": "claude-sonnet-5-5",
+   "name": "Sonnet 5.5（バランス）"
+  },
+  "haiku": {
+   "model": "claude-haiku-5-5",
+   "name": "Haiku 5.5（速さ重視）"
+  }
+ },
+ "fallback_models": [
+  "claude-opus-5-5",
+  "claude-sonnet-5-5"
+ ],
+ "prices_per_mtok_usd": {
+  "claude-opus-5-5": {
+   "in": 4.0,
+   "out": 20.0
+  },
+  "claude-sonnet-5-5": {
+   "in": 2.0,
+   "out": 10.0
+  },
+  "claude-haiku-5-5": {
+   "in": 0.1,
+   "out": 0.5
+  }
+ },
+ "system": "あなたは、カメラに映った選択式の問題（主に4択）を読み、正解を示す係です。\n\n- 画像はカメラの1コマです。紙・画面・本などが斜めに映ったり、ぼやけたりしています。\n- 問題文と選択肢がすべて読めるときだけ found を true にします。問題が映っていない、ぼやけて読めない、\n  選択肢が画面の外に切れているときは found を false にし、reason に足りないことを短く書きます\n  （例「選択肢の下半分が切れている」「文字が小さく読めない」）。そのとき他の項目は空にします。\n- 問題が複数映っているときは、画像の中央に近く、いちばん大きく映っている1問だけを扱います。\n- label は問題に書かれた記号のまま書きます（A・B・C・D、1・2・3・4、ア・イ・ウ・エ など）。\n  記号が無ければ上から A・B・C・D とします。\n- answer_labels は正解の label です。「2つ選べ」のように複数を選ぶ問題なら、すべて入れます。\n- confidence は答えの確からしさです（高・中・低）。知識が足りず推測なら「低」にします。\n- box は、その選択肢の記号と文の全体を囲む長方形です。画像のピクセル座標で、左上が (0,0)、\n  x は右へ、y は下へ増えます。画像の大きさは利用者のメッセージに書きます。\n- question は問題文の要点を30字までで書きます。\n- explanation は、正解の理由を日本語で2文までで書きます。",
+ "user_text": "画像の大きさは 幅{w} × 高さ{h} ピクセルです。この問題の正解を示してください。",
+ "schema": {
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+   "found": {
+    "type": "boolean"
+   },
+   "reason": {
+    "type": "string"
+   },
+   "answer_labels": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    }
+   },
+   "confidence": {
+    "type": "string",
+    "enum": [
+     "高",
+     "中",
+     "低",
+     ""
+    ]
+   },
+   "question": {
+    "type": "string"
+   },
+   "choices": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "additionalProperties": false,
+     "properties": {
+      "label": {
+       "type": "string"
+      },
+      "text": {
+       "type": "string"
+      },
+      "box": {
+       "type": "object",
+       "additionalProperties": false,
+       "properties": {
+        "x0": {
+         "type": "integer"
+        },
+        "y0": {
+         "type": "integer"
+        },
+        "x1": {
+         "type": "integer"
+        },
+        "y1": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+       ]
+      }
+     },
+     "required": [
+      "label",
+      "text",
+      "box"
+     ]
+    }
+   },
+   "explanation": {
+    "type": "string"
+   }
+  },
+  "required": [
+   "found",
+   "reason",
+   "answer_labels",
+   "confidence",
+   "question",
+   "choices",
+   "explanation"
+  ]
+ }
+}
