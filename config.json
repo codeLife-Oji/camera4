@@ -1,9 +1,14 @@
 {
  "_説明": "AI への指示・モデル・料金。Mac の server.py と、スマホだけで使うときの index.html の両方がこれを読む。",
- "default_mode": "opus",
+ "default_mode": "mix",
  "effort": "low",
  "yen_per_usd": 150,
  "modes": {
+  "mix": {
+   "name": "おまかせ（自動は Haiku・押すと Opus）",
+   "auto": "haiku",
+   "manual": "opus"
+  },
   "opus": {
    "model": "claude-opus-5-5",
    "name": "Opus 5.5（正確さ重視）"

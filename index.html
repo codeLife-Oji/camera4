@@ -62,6 +62,8 @@
   #keybox small { opacity: .7; line-height: 1.6; }
   #keybox a { color: #93c5fd; }
   #settings { display: none; }
+  #top #wide { display: none; }
+  #top #wide.on { background: rgba(4,120,87,.9); border-color: #34d399; }
   /* 終了ボタン：右上に常に出す（最初の画面の上にも出る） */
   #quit { position: fixed; top: calc(env(safe-area-inset-top) + 10px); right: 10px; z-index: 30;
     background: #b91c1c; color: #fff; border: 2px solid rgba(255,255,255,.7); border-radius: 999px;
@@ -96,6 +98,7 @@
 <div id="top">
   <select id="cam" title="カメラ"></select>
   <select id="mode" title="AI"></select>
+  <button id="wide" title="超広角カメラに切り替える">広角</button>
   <label><input type="checkbox" id="auto" checked>自動で読む</label>
   <label><input type="checkbox" id="voice" checked>声</label>
   <button id="now" title="Space">今すぐ読む</button>
@@ -109,7 +112,7 @@
 
 <div id="start">
   <h1>カメラ4択</h1>
-  <div id="ver">版 2026-11-20b</div>
+  <div id="ver">版 2026-11-20c</div>
   <p>問題をカメラに映すと、AI が読んで正解を映像の上に示します。<br>
      止めて映すと自動で読みます。画面を押すと今すぐ読みます。</p>
   <div id="pinbox"><div>Mac に出ている6桁の PIN を入れてください</div>
@@ -279,6 +282,13 @@ function setCost(month, limit) { $("cost").textContent = `今月 ${month.toFixed
 function clearResult() { result = null; shift = {x: 0, y: 0}; $("card").style.display = "none"; pill("見ています"); }
 
 // ---- 読む
+// どのモデルで読むか：おまかせなら、自動で読むときは auto（Haiku）、押したときは manual（Opus）
+function pickMode(reason) {
+  const sel = $("mode").value, m = CFG.modes[sel];
+  if (m && m.model) return sel;
+  return reason === "new" ? m.auto : m.manual;
+}
+const shortName = mode => CFG.modes[mode].name.split("（")[0];
 // 返事の受け取り（Mac のサーバー経由でも、スマホから直接でも同じ）
 function onAnswer(labels, audio) {
   if (ended) return;                          // 終了した後に届いた返事は出さない
@@ -292,13 +302,14 @@ function onDone(d, sec, yen, cap) {
   if (d.found) {
     result = {...cap, d, shown: performance.now()}; shift = {x: 0, y: 0}; lost = false;
     pill("正解 " + d.answer_labels.join("・") + (d.confidence === "低" ? "（自信なし）" : ""), "answer");
-    showCard(d, `${sec}秒・約${yen}円`);
+    showCard(d, `${shortName(usingMode)}・${sec}秒・約${yen}円`);
   } else {
     pill((d.reason || "問題が読めません") + "（押すと読み直す）", "warn");
   }
 }
 function onError(msg, stopAuto) { if (ended) return; misses++; lastFound = false; pill(msg, "warn"); if (stopAuto) $("auto").checked = false; }
 
+let usingMode = "";
 async function solve(reason) {
   if (busy || ended || !stream || !v.videoWidth) return;
   busy = true; scanStart = performance.now(); lastSendAt = Date.now();
@@ -310,7 +321,8 @@ async function solve(reason) {
   const refW = 480, ref = gray(refW);
   const cap = {cw, ch, ref, refW, refH: ref.h};
   const image = c2.toDataURL("image/jpeg", 0.85).split(",")[1];
-  pill("読み取っています…", "busy");
+  usingMode = pickMode(reason);
+  pill(`読み取っています…（${shortName(usingMode)}）`, "busy");
   try {
     if (DIRECT) await solveDirect(image, cw, ch, cap);
     else await solveServer(image, cw, ch, cap);
@@ -320,7 +332,7 @@ async function solve(reason) {
 async function solveServer(image, cw, ch, cap) {
   try {
     const res = await fetch("api/solve", {method: "POST", headers: {"Content-Type": "application/json", "X-Pin": pinValue()},
-      body: JSON.stringify({image, w: cw, h: ch, mode: $("mode").value, voice: $("voice").checked})});
+      body: JSON.stringify({image, w: cw, h: ch, mode: usingMode, voice: $("voice").checked})});
     if (res.status === 401) { const e = await res.json(); localStorage.removeItem("cam4-pin"); return onError(e.error, true); }
     if (res.status === 402) { const e = await res.json(); return onError(e.error, true); }
     const rd = res.body.getReader(), dec = new TextDecoder(); let buf = "";
@@ -366,7 +378,7 @@ function clampBoxes(d, w, h) {
 }
 async function solveDirect(image, w, h, cap) {
   if (spent() >= limitYen()) return onError(`今月の費用の目安が上限（${limitYen()}円）に届いたので止めています`, true);
-  const model = CFG.modes[$("mode").value].model, t0 = performance.now();
+  const model = CFG.modes[usingMode].model, t0 = performance.now();
   const params = {
     model, max_tokens: 16000, system: CFG.system,
     messages: [{role: "user", content: [
@@ -428,6 +440,36 @@ function tick() {
 }
 
 // ---- カメラ
+// ---- 広角：iPhone は「背面超広角カメラ」を別のカメラとして見せるので、それに切り替える。
+// 超広角のカメラが無く、カメラを1倍より引ける（zoom の最小が1未満）端末では、いちばん引いた倍率にする。
+const WIDE_RE = /超広角|ultra ?wide/i, BACK_RE = /^背面カメラ$|^back camera$/i;
+let zoomWide = false;
+function curTrack() { return stream ? stream.getVideoTracks()[0] : null; }
+async function videoDevices() { return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput"); }
+function zoomCaps(t) { try { return (t && t.getCapabilities && t.getCapabilities().zoom) || null; } catch (e) { return null; } }
+async function updateWideButton() {
+  const t = curTrack(), devs = await videoDevices(), z = zoomCaps(t);
+  const can = devs.some(d => WIDE_RE.test(d.label)) || (z && z.min < 1);
+  const on = (t && WIDE_RE.test(t.label)) || zoomWide;
+  $("wide").style.display = can ? "inline-block" : "none";
+  $("wide").textContent = on ? "広角：オン" : "広角";
+  $("wide").classList.toggle("on", !!on);
+}
+$("wide").onclick = async e => {
+  e.stopPropagation();
+  const t = curTrack(); if (!t) return;
+  const devs = await videoDevices(), wide = devs.find(d => WIDE_RE.test(d.label)), z = zoomCaps(t);
+  const on = WIDE_RE.test(t.label) || zoomWide;
+  try {
+    if (wide) {
+      if (!on) await startCamera(wide.deviceId);
+      else { const back = devs.find(d => BACK_RE.test(d.label)); await startCamera(back ? back.deviceId : undefined); }
+    } else if (z) {
+      await t.applyConstraints({advanced: [{zoom: on ? Math.max(1, z.min) : z.min}]});
+      zoomWide = !on; clearResult(); prevSmall = null; sentSmall = null; updateWideButton();
+    }
+  } catch (err) { pill("広角に切り替えられません：" + err.message, "warn"); }
+};
 async function startCamera(deviceId) {
   if (stream) stream.getTracks().forEach(t => t.stop());
   const video = deviceId ? {deviceId: {exact: deviceId}, width: {ideal: 1920}, height: {ideal: 1080}}
@@ -439,6 +481,7 @@ async function startCamera(deviceId) {
   $("cam").innerHTML = devs.map((d, i) => `<option value="${d.deviceId}" ${d.deviceId === curId ? "selected" : ""}>${esc(d.label || "カメラ " + (i + 1))}</option>`).join("");
   localStorage.setItem("cam4-camera", curId || "");
   clearResult(); prevSmall = null; sentSmall = null;
+  zoomWide = false; updateWideButton();
 }
 
 // 声は1つの audio を使い回す（iPhone は、押したときに一度鳴らした audio でないと後から鳴らせない）
@@ -455,7 +498,11 @@ async function getInfo() {
   if (DIRECT) return directInfo();
   try {
     const res = await fetch("api/info", {headers: {"X-Pin": pinValue()}});
-    if (res.ok && (res.headers.get("content-type") || "").includes("json")) return await res.json();
+    if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
+      const d = await res.json();
+      if (!CFG) CFG = await (await fetch("config.json")).json();
+      return d;
+    }
   } catch (e) {}
   DIRECT = true;                              // Mac のサーバーが無い（外出先など）→ スマホだけで使う
   CFG = await (await fetch("config.json")).json();
@@ -479,7 +526,7 @@ async function init() {
     $("phonepin").textContent = info.pin; $("phone").style.display = "flex";
   }
   $("mode").innerHTML = Object.entries(info.modes).map(([k, n]) => `<option value="${k}">${n}</option>`).join("");
-  $("mode").value = localStorage.getItem("cam4-mode") || info.default_mode;
+  $("mode").value = localStorage.getItem("cam4-mode2") || info.default_mode;
   if (!$("mode").value) $("mode").value = info.default_mode;
   $("voice").checked = localStorage.getItem("cam4-voice") !== "0";
   if (info.mock) $("mockbadge").style.display = "inline-block";
@@ -492,7 +539,7 @@ async function init() {
     $("apikey").placeholder = key ? "保存済み（変えるときだけ入れる）" : "sk-ant-…";
   }
 }
-$("mode").onchange = () => localStorage.setItem("cam4-mode", $("mode").value);
+$("mode").onchange = () => localStorage.setItem("cam4-mode2", $("mode").value);
 $("voice").onchange = () => localStorage.setItem("cam4-voice", $("voice").checked ? "1" : "0");
 $("cam").onchange = () => startCamera($("cam").value).catch(e => pill("カメラを開けません：" + e.message, "warn"));
 $("now").onclick = () => solve("button");
