@@ -30,6 +30,17 @@
   #pill.answer { background: rgba(6,95,70,.88); font-size: 30px; font-weight: 700; padding: 12px 30px;
     box-shadow: 0 0 40px rgba(52,211,153,.55); }
   #pill.warn { background: rgba(127,29,29,.85); }
+  /* 大きな正解：画面の真ん中に大きく出す。背景色が確からしさ（緑＝高・黄＝中・赤＝低）。押すと素通りして読み直せる */
+  #big { position: fixed; inset: 0; z-index: 4; display: none; align-items: center; justify-content: center; pointer-events: none; }
+  #big .box { min-width: 56vw; max-width: 94vw; padding: 2vh 6vw 3vh; border-radius: 36px; text-align: center;
+    background: rgba(4,120,87,.86); box-shadow: 0 0 60px rgba(0,0,0,.55); border: 4px solid rgba(255,255,255,.75);
+    animation: pop .25s ease-out; }
+  #big.conf-mid .box { background: rgba(161,98,7,.88); }
+  #big.conf-low .box { background: rgba(153,27,27,.88); }
+  #big .cap { font-size: max(24px, min(6vw, 7vh)); font-weight: 700; opacity: .9; }
+  #big .ans { font-weight: 900; line-height: 1; color: #fff; text-shadow: 0 4px 20px rgba(0,0,0,.35); }
+  #big .sub { font-size: max(15px, min(3vw, 3.5vh)); font-weight: 700; margin-top: 1vh; opacity: .9; }
+  @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); animation: breathe 1.6s infinite; }
   #pill.busy .dot { background: #a78bfa; animation: breathe .6s infinite; }
   @keyframes breathe { 0%,100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.15); } }
@@ -109,10 +120,11 @@
 <button id="quit">終了</button>
 <div id="pill"><span class="dot"></span><span id="pilltext">準備中</span></div>
 <div id="card"></div>
+<div id="big"><div class="box"><div class="cap">正解</div><div class="ans"></div><div class="sub"></div></div></div>
 
 <div id="start">
   <h1>カメラ4択</h1>
-  <div id="ver">版 2026-11-20c</div>
+  <div id="ver">版 2026-11-20d</div>
   <p>問題をカメラに映すと、AI が読んで正解を映像の上に示します。<br>
      止めて映すと自動で読みます。画面を押すと今すぐ読みます。</p>
   <div id="pinbox"><div>Mac に出ている6桁の PIN を入れてください</div>
@@ -267,7 +279,18 @@ function draw() {
 function norm(s) { return (s || "").normalize("NFKC").toUpperCase().replace(/[()（）\[\]［］.．、。:：\s]/g, ""); }
 function esc(s) { return (s || "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c])); }
 
-function pill(text, cls = "") { $("pilltext").textContent = text; $("pill").className = cls; }
+function pill(text, cls = "") { $("pilltext").textContent = text; $("pill").className = cls; $("pill").style.display = ""; hideBig(); }
+// 大きな正解（前の小さな「正解 C」のおよそ5倍。記号が長いときは字を小さくする）
+function showBig(labels, conf, sub) {
+  const text = labels.join("・"), b = $("big");
+  b.className = "conf-" + ({"高": "high", "中": "mid", "低": "low"}[conf] || "high");
+  const ans = b.querySelector(".ans");
+  if (ans.textContent !== text) { ans.textContent = text; b.querySelector(".box").style.animation = "none"; void b.offsetWidth; b.querySelector(".box").style.animation = ""; }
+  ans.style.fontSize = `min(${38 / Math.max(1, text.length * 0.55)}vw, ${42 / Math.max(1, text.length * 0.45)}vh)`;
+  b.querySelector(".sub").textContent = sub || (conf ? "確からしさ " + conf : "");
+  b.style.display = "flex"; $("pill").style.display = "none";
+}
+function hideBig() { $("big").style.display = "none"; }
 function showCard(d, meta) {
   const ok = new Set(d.answer_labels.map(norm));
   // 選択肢は映像の上に枠で出ているので、ここは正解の文と理由だけにして映像を隠さない
@@ -279,7 +302,7 @@ function showCard(d, meta) {
   $("card").style.display = "block";
 }
 function setCost(month, limit) { $("cost").textContent = `今月 ${month.toFixed(1)}円 / ${limit}円`; }
-function clearResult() { result = null; shift = {x: 0, y: 0}; $("card").style.display = "none"; pill("見ています"); }
+function clearResult() { result = null; shift = {x: 0, y: 0}; $("card").style.display = "none"; pill("見ています"); }   // pill が大きな正解も消す
 
 // ---- 読む
 // どのモデルで読むか：おまかせなら、自動で読むときは auto（Haiku）、押したときは manual（Opus）
@@ -290,9 +313,9 @@ function pickMode(reason) {
 }
 const shortName = mode => CFG.modes[mode].name.split("（")[0];
 // 返事の受け取り（Mac のサーバー経由でも、スマホから直接でも同じ）
-function onAnswer(labels, audio) {
+function onAnswer(labels, audio, conf) {
   if (ended) return;                          // 終了した後に届いた返事は出さない
-  pill("正解 " + labels.join("・"), "answer");
+  showBig(labels, conf, "");
   if (audio) { sound.src = audio; sound.play().catch(() => {}); }
 }
 function onDone(d, sec, yen, cap) {
@@ -301,8 +324,8 @@ function onDone(d, sec, yen, cap) {
   lastFound = d.found;
   if (d.found) {
     result = {...cap, d, shown: performance.now()}; shift = {x: 0, y: 0}; lost = false;
-    pill("正解 " + d.answer_labels.join("・") + (d.confidence === "低" ? "（自信なし）" : ""), "answer");
-    showCard(d, `${shortName(usingMode)}・${sec}秒・約${yen}円`);
+    // 解説は出さない（2026/11/20 指示）。確からしさは大きな正解の背景色と下の小さな字で示す
+    showBig(d.answer_labels, d.confidence, `確からしさ ${d.confidence || "中"}・${shortName(usingMode)}・${sec}秒・約${yen}円`);
   } else {
     pill((d.reason || "問題が読めません") + "（押すと読み直す）", "warn");
   }
@@ -342,7 +365,7 @@ async function solveServer(image, cw, ch, cap) {
       let i; while ((i = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line.trim()) continue;
         const m = JSON.parse(line);
-        if (m.type === "answer") onAnswer(m.labels, m.audio);
+        if (m.type === "answer") onAnswer(m.labels, m.audio, m.confidence);
         else if (m.type === "done") { if (m.month !== undefined) setCost(m.month, m.limit); onDone(m.result, m.sec, m.yen, cap); }
         else if (m.type === "error") onError(m.error);
       }
@@ -397,7 +420,7 @@ async function solveDirect(image, w, h, cap) {
       let labels; try { labels = JSON.parse(m[1]); } catch (e) { return; }
       sent = true; if (!labels.length) return;
       const c = buf.slice(m.index + m[0].length).match(CONF_RE);
-      onAnswer(labels, $("voice").checked ? voiceFor(labels, c ? c[1] : "") : "");
+      onAnswer(labels, $("voice").checked ? voiceFor(labels, c ? c[1] : "") : "", c ? c[1] : "");
     });
     const r = await stream.finalMessage();
     const p = CFG.prices_per_mtok_usd[model];
