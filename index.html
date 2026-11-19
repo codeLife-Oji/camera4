@@ -62,6 +62,7 @@
   #keybox small { opacity: .7; line-height: 1.6; }
   #keybox a { color: #93c5fd; }
   #settings { display: none; }
+  #top #quit { background: rgba(153,27,27,.85); }
   #pinbox, #phone { display: none; flex-direction: column; gap: 10px; align-items: center; }
   #phone { background: rgba(255,255,255,.06); border-radius: 14px; padding: 12px 18px; font-size: 14px; line-height: 1.7; }
   #phone code { font-size: 15px; user-select: all; }
@@ -94,6 +95,7 @@
   <label><input type="checkbox" id="voice" checked>声</label>
   <button id="now" title="Space">今すぐ読む</button>
   <button id="settings">設定</button>
+  <button id="quit">終了</button>
   <span id="mockbadge" style="font-size:12px;padding:6px 10px;border-radius:999px">試し（AI を呼んでいません）</span>
   <span id="cost"></span>
 </div>
@@ -272,10 +274,12 @@ function clearResult() { result = null; shift = {x: 0, y: 0}; $("card").style.di
 // ---- 読む
 // 返事の受け取り（Mac のサーバー経由でも、スマホから直接でも同じ）
 function onAnswer(labels, audio) {
+  if (ended) return;                          // 終了した後に届いた返事は出さない
   pill("正解 " + labels.join("・"), "answer");
   if (audio) { sound.src = audio; sound.play().catch(() => {}); }
 }
 function onDone(d, sec, yen, cap) {
+  if (ended) return;
   lastFound = d.found;
   if (d.found) {
     result = {...cap, d, shown: performance.now()}; shift = {x: 0, y: 0}; lost = false;
@@ -285,10 +289,10 @@ function onDone(d, sec, yen, cap) {
     pill(d.reason || "問題が読めません", "warn");
   }
 }
-function onError(msg, stopAuto) { lastFound = false; pill(msg, "warn"); if (stopAuto) $("auto").checked = false; }
+function onError(msg, stopAuto) { if (ended) return; lastFound = false; pill(msg, "warn"); if (stopAuto) $("auto").checked = false; }
 
 async function solve(reason) {
-  if (busy || !v.videoWidth) return;
+  if (busy || ended || !stream || !v.videoWidth) return;
   busy = true; scanStart = performance.now(); lastSendAt = Date.now();
   sentSmall = gray(64);
   const sc = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight));   // 長い辺を1280までにする（スマホの縦長も）
@@ -480,9 +484,32 @@ $("stage").onclick = () => solve("tap");     // 映像を押すと今すぐ読�
 $("settings").onclick = e => { e.stopPropagation(); $("apikey").value = ""; init(); $("start").style.display = "flex"; };
 $("forget").onclick = e => { e.preventDefault(); localStorage.removeItem("cam4-key"); client = null;
   $("apikey").placeholder = "sk-ant-…"; $("err").textContent = "このスマホからキーを消しました"; };
-let started = false;
+let started = false, ended = false;
+// 終了ボタン：カメラ・自動の読み取り・画面を消さない設定を止めて、最初の画面に戻る。
+// Mac の画面から押したときは、Mac のサーバーも止める（Terminal で Ctrl+C を押さなくてよい）。
+$("quit").onclick = async e => {
+  e.stopPropagation();
+  ended = true;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; v.srcObject = null;
+  result = null; shift = {x: 0, y: 0}; prevSmall = null; sentSmall = null; stillTicks = 0;
+  $("card").style.display = "none"; pill("終了しました");
+  sound.pause();
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  $("err").textContent = "";
+  if (!DIRECT && info.local) {
+    try { await fetch("api/quit", {method: "POST"}); } catch (err) {}
+    $("start").querySelector("p").innerHTML = "終了しました（Mac のサーバーも止めました）。<br>このタブは閉じてかまいません。もう一度使うときは 起動.command を開きます。";
+    $("go").style.display = "none"; $("phone").style.display = "none";
+  } else {
+    $("start").querySelector("p").innerHTML = "終了しました（カメラを止めました）。<br>もう一度使うときは「カメラを始める」を押します。";
+  }
+  $("keybox").style.display = "none"; $("pinbox").style.display = "none";
+  $("start").style.display = "flex";
+};
 $("go").onclick = async () => {
   $("err").textContent = "";
+  ended = false;
   if (DIRECT) {                               // キーを確かめる（数えるだけの無料の呼び出し）
     const typed = $("apikey").value.trim(), key = typed || localStorage.getItem("cam4-key") || "";
     const lim = parseInt($("limit").value, 10); if (lim > 0) localStorage.setItem("cam4-limit", lim);
