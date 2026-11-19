@@ -9,6 +9,15 @@
    "auto": "haiku",
    "manual": "opus"
   },
+  "mix_check": {
+   "name": "おまかせ＋確認（自動は Haiku・自信なしは Opus で読み直す・押すと Opus）",
+   "auto": "haiku",
+   "manual": "opus",
+   "recheck": "opus",
+   "recheck_when": [
+    "低"
+   ]
+  },
   "opus": {
    "model": "claude-opus-5-5",
    "name": "Opus 5.5（正確さ重視）"

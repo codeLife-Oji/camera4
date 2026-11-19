@@ -124,7 +124,7 @@
 
 <div id="start">
   <h1>カメラ4択</h1>
-  <div id="ver">版 2026-11-20e</div>
+  <div id="ver">版 2026-11-20f</div>
   <p>問題をカメラに映すと、AI が読んで正解を映像の上に示します。<br>
      止めて映すと自動で読みます。画面を押すと今すぐ読みます。</p>
   <div id="pinbox"><div>Mac に出ている6桁の PIN を入れてください</div>
@@ -309,13 +309,20 @@ function clearResult() { result = null; shift = {x: 0, y: 0}; $("card").style.di
 function pickMode(reason) {
   const sel = $("mode").value, m = CFG.modes[sel];
   if (m && m.model) return sel;
+  if (reason === "recheck") return m.recheck;
   return reason === "new" ? m.auto : m.manual;
 }
+// 自動で読んだ答えの確からしさが低いとき、別のモデルで同じ画像を読み直すか（おまかせ＋確認のとき）
+function needRecheck(d) {
+  const m = CFG.modes[$("mode").value];
+  return !!(m && m.recheck && usingMode === m.auto && d.found && (m.recheck_when || ["低"]).includes(d.confidence));
+}
+let wantRecheck = false, lastShot = null, firstAnswer = "";
 const shortName = mode => CFG.modes[mode].name.split("（")[0];
 // 返事の受け取り（Mac のサーバー経由でも、スマホから直接でも同じ）
 function onAnswer(labels, audio, conf) {
   if (ended) return;                          // 終了した後に届いた返事は出さない
-  showBig(labels, conf, "");
+  showBig(labels, conf, firstAnswer ? `${shortName(usingMode)}の答え（確かめ中）` : "");
   if (audio) { sound.src = audio; sound.play().catch(() => {}); }
 }
 function onDone(d, sec, yen, cap) {
@@ -325,7 +332,15 @@ function onDone(d, sec, yen, cap) {
   if (d.found) {
     result = {...cap, d, shown: performance.now()}; shift = {x: 0, y: 0}; lost = false;
     // 解説は出さない（2026/11/20 指示）。確からしさは大きな正解の背景色と下の小さな字で示す
-    showBig(d.answer_labels, d.confidence, `確からしさ ${d.confidence || "中"}・${shortName(usingMode)}・${sec}秒・約${yen}円`);
+    const ans = d.answer_labels.join("・");
+    let sub = `確からしさ ${d.confidence || "中"}・${shortName(usingMode)}・${sec}秒・約${yen}円`;
+    if (firstAnswer) sub = `${shortName(usingMode)}で確かめた（${firstAnswer.mode}は ${firstAnswer.ans}${firstAnswer.ans === ans ? "・同じ" : "・変わった"}）・` + sub;
+    firstAnswer = "";
+    if (needRecheck(d)) {                    // 自信なし → 同じ画像を別のモデルで読み直す
+      wantRecheck = true; firstAnswer = {mode: shortName(usingMode), ans};
+      sub = `自信なし → ${shortName(CFG.modes[$("mode").value].recheck)}で確かめています…`;
+    }
+    showBig(d.answer_labels, d.confidence, sub);
   } else {
     pill((d.reason || "問題が読めません") + "（押すと読み直す）", "warn");
   }
@@ -335,21 +350,32 @@ function onError(msg, stopAuto) { if (ended) return; misses++; lastFound = false
 let usingMode = "";
 async function solve(reason) {
   if (busy || ended || !stream || !v.videoWidth) return;
+  if (reason !== "recheck") { wantRecheck = false; firstAnswer = ""; }
   busy = true; scanStart = performance.now(); lastSendAt = Date.now();
-  sentSmall = gray(64);
-  const sc = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight));   // 長い辺を1280までにする（スマホの縦長も）
-  const cw = Math.round(v.videoWidth * sc), ch = Math.round(v.videoHeight * sc);
-  const c2 = document.createElement("canvas"); c2.width = cw; c2.height = ch;
-  c2.getContext("2d").drawImage(v, 0, 0, cw, ch);
-  const refW = 480, ref = gray(refW);
-  const cap = {cw, ch, ref, refW, refH: ref.h};
-  const image = c2.toDataURL("image/jpeg", 0.85).split(",")[1];
+  let image, cw, ch, cap;
+  if (reason === "recheck" && lastShot) {   // 読み直しは、さっきと同じ画像を送る
+    ({image, cw, ch, cap} = lastShot);
+  } else {
+    sentSmall = gray(64);
+    const sc = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight));   // 長い辺を1280までにする（スマホの縦長も）
+    cw = Math.round(v.videoWidth * sc); ch = Math.round(v.videoHeight * sc);
+    const c2 = document.createElement("canvas"); c2.width = cw; c2.height = ch;
+    c2.getContext("2d").drawImage(v, 0, 0, cw, ch);
+    const refW = 480, ref = gray(refW);
+    cap = {cw, ch, ref, refW, refH: ref.h};
+    image = c2.toDataURL("image/jpeg", 0.85).split(",")[1];
+    lastShot = {image, cw, ch, cap};
+  }
   usingMode = pickMode(reason);
-  pill(`読み取っています…（${shortName(usingMode)}）`, "busy");
+  // 読み直しの間は、さっきの大きな答えを出したままにする
+  if (reason !== "recheck") pill(`読み取っています…（${shortName(usingMode)}）`, "busy");
   try {
     if (DIRECT) await solveDirect(image, cw, ch, cap);
     else await solveServer(image, cw, ch, cap);
-  } finally { busy = false; }
+  } finally {
+    busy = false;
+    if (wantRecheck && !ended) { wantRecheck = false; solve("recheck"); }
+  }
 }
 
 async function solveServer(image, cw, ch, cap) {
