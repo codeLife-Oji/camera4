@@ -124,7 +124,7 @@
 
 <div id="start">
   <h1>カメラ4択</h1>
-  <div id="ver">版 2026-11-20d</div>
+  <div id="ver">版 2026-11-20e</div>
   <p>問題をカメラに映すと、AI が読んで正解を映像の上に示します。<br>
      止めて映すと自動で読みます。画面を押すと今すぐ読みます。</p>
   <div id="pinbox"><div>Mac に出ている6桁の PIN を入れてください</div>
@@ -463,13 +463,36 @@ function tick() {
 }
 
 // ---- カメラ
-// ---- 広角：iPhone は「背面超広角カメラ」を別のカメラとして見せるので、それに切り替える。
-// 超広角のカメラが無く、カメラを1倍より引ける（zoom の最小が1未満）端末では、いちばん引いた倍率にする。
-const WIDE_RE = /超広角|ultra ?wide/i, BACK_RE = /^背面カメラ$|^back camera$/i;
+// ---- 広角
+// iPhone の「背面超広角カメラ」は機種によってピントが固定で、近くの紙に合わない（2026/11/20 指摘）。
+// そこで次の順に選ぶ。
+//  1. 「背面デュアル広角カメラ」「背面トリプルカメラ」：広角と超広角を組み合わせたカメラで、ピントを自動で合わせ、
+//     近いときは自動で接写に切り替わる。倍率を下げられれば、いちばん引いた倍率（0.5倍など）にする。
+//  2. 今のカメラの倍率を1倍より下げられる端末（Android など）：同じカメラのまま倍率を下げる。
+//  3. 「背面超広角カメラ」だけがある端末：それを使い、紙から離すよう知らせる。
+const MULTI_RE = /デュアル広角|トリプル|dual wide|triple/i, ULTRA_RE = /超広角|ultra ?wide/i;
+const WIDE_RE = new RegExp(MULTI_RE.source + "|" + ULTRA_RE.source, "i"), BACK_RE = /^背面カメラ$|^back camera$/i;
 let zoomWide = false;
 function curTrack() { return stream ? stream.getVideoTracks()[0] : null; }
 async function videoDevices() { return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput"); }
-function zoomCaps(t) { try { return (t && t.getCapabilities && t.getCapabilities().zoom) || null; } catch (e) { return null; } }
+function trackCaps(t) { try { return (t && t.getCapabilities && t.getCapabilities()) || {}; } catch (e) { return {}; } }
+function zoomCaps(t) { return trackCaps(t).zoom || null; }
+function zoomNow(t) { try { return t.getSettings().zoom; } catch (e) { return undefined; } }
+async function keepFocus(t) {             // ピントを合わせ続ける設定ができる端末では、そうする
+  const fm = trackCaps(t).focusMode;
+  if (fm && fm.includes("continuous")) { try { await t.applyConstraints({advanced: [{focusMode: "continuous"}]}); } catch (e) {} }
+}
+async function zoomOut(t) {               // いちばん引いた倍率にする。下げられたら true
+  const z = zoomCaps(t); if (!z) return false;
+  const now = zoomNow(t);
+  if (now !== undefined && z.min >= now) return false;
+  await t.applyConstraints({advanced: [{zoom: z.min}]});
+  return true;
+}
+function camLabel(t) {
+  const z = zoomNow(t);
+  return (t.label || "カメラ") + (z !== undefined ? `（${Math.round(z * 10) / 10}倍）` : "");
+}
 async function updateWideButton() {
   const t = curTrack(), devs = await videoDevices(), z = zoomCaps(t);
   const can = devs.some(d => WIDE_RE.test(d.label)) || (z && z.min < 1);
@@ -481,17 +504,34 @@ async function updateWideButton() {
 $("wide").onclick = async e => {
   e.stopPropagation();
   const t = curTrack(); if (!t) return;
-  const devs = await videoDevices(), wide = devs.find(d => WIDE_RE.test(d.label)), z = zoomCaps(t);
+  const devs = await videoDevices(), z = zoomCaps(t);
   const on = WIDE_RE.test(t.label) || zoomWide;
   try {
-    if (wide) {
-      if (!on) await startCamera(wide.deviceId);
-      else { const back = devs.find(d => BACK_RE.test(d.label)); await startCamera(back ? back.deviceId : undefined); }
-    } else if (z) {
-      await t.applyConstraints({advanced: [{zoom: on ? Math.max(1, z.min) : z.min}]});
-      zoomWide = !on; clearResult(); prevSmall = null; sentSmall = null; updateWideButton();
+    if (on) {                             // 通常のカメラに戻す
+      if (zoomWide && !WIDE_RE.test(t.label)) {
+        await t.applyConstraints({advanced: [{zoom: Math.max(1, z ? z.min : 1)}]}); zoomWide = false;
+        clearResult(); prevSmall = null; sentSmall = null;
+      } else {
+        const back = devs.find(d => BACK_RE.test(d.label)); await startCamera(back ? back.deviceId : undefined);
+      }
+      pill("通常のカメラ：" + camLabel(curTrack()), "info");
+    } else {
+      const multi = devs.find(d => MULTI_RE.test(d.label)), ultra = devs.find(d => ULTRA_RE.test(d.label));
+      if (multi) {                        // 1. ピントが自動で合う組み合わせのカメラ
+        await startCamera(multi.deviceId);
+        const nt = curTrack(); await keepFocus(nt); await zoomOut(nt).catch(() => {});
+        pill("広角：" + camLabel(nt), "info");
+      } else if (z && z.min < 1) {        // 2. 同じカメラのまま倍率を下げる
+        await zoomOut(t); await keepFocus(t); zoomWide = true;
+        clearResult(); prevSmall = null; sentSmall = null;
+        pill("広角：" + camLabel(t), "info");
+      } else if (ultra) {                 // 3. 超広角だけ（ピントが固定のことがある）
+        await startCamera(ultra.deviceId); await keepFocus(curTrack());
+        pill("超広角はピントが固定のことがあります。ぼやけるときは紙から20〜30cm離してください", "warn");
+      }
     }
   } catch (err) { pill("広角に切り替えられません：" + err.message, "warn"); }
+  updateWideButton();
 };
 async function startCamera(deviceId) {
   if (stream) stream.getTracks().forEach(t => t.stop());
@@ -499,6 +539,7 @@ async function startCamera(deviceId) {
                          : {facingMode: "environment", width: {ideal: 1920}, height: {ideal: 1080}};
   stream = await navigator.mediaDevices.getUserMedia({video, audio: false});
   v.srcObject = stream; await v.play();
+  keepFocus(stream.getVideoTracks()[0]);   // ピントを合わせ続ける（できる端末だけ）
   const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
   const curId = stream.getVideoTracks()[0].getSettings().deviceId;
   $("cam").innerHTML = devs.map((d, i) => `<option value="${d.deviceId}" ${d.deviceId === curId ? "selected" : ""}>${esc(d.label || "カメラ " + (i + 1))}</option>`).join("");
