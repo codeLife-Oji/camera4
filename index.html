@@ -96,13 +96,26 @@
     border-radius: 999px; padding: 7px 16px; font-size: 14px; cursor: pointer; display: inline-block; }
   #mat .filebtn { background: #065f46; border-color: #34d399; font-weight: 700; }
   #mat .primary { background: var(--ok); color: #052e1f; font-weight: 700; border: 0; }
+  /* 読み取りの記録（スマホだけで使うとき）。見た目は教材の画面と同じ */
+  #logp { position: fixed; inset: 0; z-index: 25; display: none; align-items: flex-start; justify-content: center;
+    background: rgba(0,0,0,.6); padding: calc(env(safe-area-inset-top) + 62px) 0 calc(env(safe-area-inset-bottom) + 12px); }
+  #logp .panel { width: min(560px, calc(100% - 20px)); max-height: 100%; overflow: auto; background: #0f172a;
+    border: 1px solid rgba(255,255,255,.2); border-radius: 18px; padding: 16px 18px; font-size: 14px; line-height: 1.6; }
+  #logp h2 { margin: 0 0 6px; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+  #logp h2 span { flex: 1; }
+  #logp button { background: #1e293b; color: var(--ink); border: 1px solid rgba(255,255,255,.25);
+    border-radius: 999px; padding: 7px 16px; font-size: 14px; cursor: pointer; }
+  #logp .primary { background: var(--ok); color: #052e1f; font-weight: 700; border: 0; }
+  #logp table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+  #logp td, #logp th { text-align: left; padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,.1); vertical-align: top; }
+  #logp th { opacity: .7; font-weight: 400; }
   #mat .del.sure { background: #b91c1c; }
   #mat textarea, #mat input[type=text] { width: 100%; background: rgba(255,255,255,.06); color: var(--ink);
     border: 1px solid rgba(255,255,255,.25); border-radius: 10px; padding: 8px; font-size: 15px; margin: 4px 0; }
   #mat textarea { height: 90px; }
   #matsum { background: rgba(255,255,255,.07); border-radius: 10px; padding: 8px 10px; margin: 10px 0; }
   #materr { color: #fca5a5; min-height: 1em; margin: 6px 0; }
-  #start #startmat { background: #1e293b; color: var(--ink); font-size: 15px; padding: 10px 22px; font-weight: 700;
+  #start #startmat, #start #startlog { background: #1e293b; color: var(--ink); font-size: 15px; padding: 10px 22px; font-weight: 700;
     border: 1px solid rgba(255,255,255,.35); }
   #ver { position: fixed; bottom: calc(env(safe-area-inset-bottom) + 8px); left: 0; right: 0; font-size: 11px; opacity: .45; }
   #pinbox, #phone { display: none; flex-direction: column; gap: 10px; align-items: center; }
@@ -136,6 +149,7 @@
   <select id="mode" title="AI"></select>
   <button id="wide" title="超広角カメラに切り替える">広角</button>
   <button id="matbtn" title="答えの根拠にする学習教材">教材</button>
+  <button id="logbtn" title="このスマホで読んだ記録" style="display:none">記録</button>
   <label><input type="checkbox" id="auto" checked>自動で読む</label>
   <label><input type="checkbox" id="voice" checked>声</label>
   <button id="now" title="Space">今すぐ読む</button>
@@ -150,7 +164,7 @@
 
 <div id="start">
   <h1>カメラ4択</h1>
-  <div id="ver">版 2026-11-22b</div>
+  <div id="ver">版 2026-11-22c</div>
   <p>問題をカメラに映すと、AI が読んで正解を映像の上に示します。<br>
      止めて映すと自動で読みます。画面を押すと今すぐ読みます。</p>
   <div id="pinbox"><div>Mac に出ている6桁の PIN を入れてください</div>
@@ -165,6 +179,7 @@
   <div id="err"></div>
   <button id="go">カメラを始める</button>
   <button id="startmat">教材を入れる</button>
+  <button id="startlog" style="display:none">読み取りの記録</button>
   <div id="phone">スマホ（同じ Wi-Fi）の Safari・Chrome で開く<div id="phoneurls"></div>PIN <b id="phonepin"></b>
     <div style="opacity:.7;font-size:12px">警告が出たら「詳細」から開く。警告を消すには、スマホで開いたページの<br>
     <code>/ca.crt</code> を入れる（使い方.md）</div></div>
@@ -186,6 +201,16 @@
   <button id="mataddtext">この文を足す</button>
   <div id="materr"></div>
   <div style="text-align:right"><button id="matclose" class="primary">閉じる</button></div>
+</div></div>
+
+<div id="logp"><div class="panel">
+  <h2><span>読み取りの記録</span><button class="primary" id="logclose">閉じる</button></h2>
+  <div style="opacity:.85">このスマホで読んだ1回ずつ（日時・モデル・問題・正解・確からしさ・理由・秒・円）を、
+    このスマホのブラウザにだけ残しています。外へは送りません。列は Mac の 記録/履歴_YYYYMM.csv と同じです。</div>
+  <div id="logsum" style="margin-top:8px"></div>
+  <table><thead><tr><th>日時</th><th>モデル</th><th>正解</th><th>確から<br>しさ</th><th>円</th></tr></thead><tbody id="loglist"></tbody></table>
+  <button id="logcsv" class="primary">csv で書き出す</button>
+  <div id="logerr" style="color:#fca5a5;margin-top:6px"></div>
 </div></div>
 
 <script>
@@ -527,6 +552,51 @@ function clampBoxes(d, w, h) {
     c.box = {x0, y0, x1, y1}; }
   return d;
 }
+// ---- 読み取りの記録（スマホだけで使うとき）。Mac のサーバーを通すときは server.py が 記録/履歴_YYYYMM.csv に残す
+const LOG_COLS = ["日時", "モデル", "読めた", "問題", "正解", "確からしさ", "理由", "秒", "費用の目安_円"];
+const pad2 = n => String(n).padStart(2, "0");
+function nowText() { const t = new Date();
+  return `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}`; }
+async function logRead(model, d, sec, yen) {        // 1回分を残す。残せなくても読み取りは止めない
+  const reason = d.explanation || d.reason || (matsOn().length && d.basis ? "根拠：" + d.basis : "");
+  const row = {t: nowText(), model, found: d.found ? "はい" : "いいえ", q: d.question || "",
+    ans: (d.answer_labels || []).join("・"), conf: d.confidence || "", reason, sec: (+sec).toFixed(1), yen: (+yen).toFixed(2)};
+  try { await matTx("readwrite", st => st.add(row), "log"); } catch (e) { console.warn("記録を残せませんでした", e); }
+}
+let logOpen = false, LOGROWS = [];
+async function openLog(e) {
+  if (e) e.stopPropagation(); logOpen = true; $("logerr").textContent = ""; $("logp").style.display = "flex";
+  try { LOGROWS = await matTx("readonly", st => st.getAll(), "log"); } catch (err) { LOGROWS = []; $("logerr").textContent = "記録を読めません：" + err.message; }
+  const ym = nowText().slice(0, 7), mon = LOGROWS.filter(r => r.t.startsWith(ym));
+  $("logsum").textContent = `全部で ${LOGROWS.length}件（今月 ${mon.length}件・約${mon.reduce((a, r) => a + (+r.yen || 0), 0).toFixed(1)}円）。下は新しい順に50件まで。`;
+  $("loglist").innerHTML = LOGROWS.slice(-50).reverse().map(r =>
+    `<tr><td>${esc(r.t.slice(5, 16))}</td><td>${esc(modelShort(r.model))}</td><td>${esc(r.found === "はい" ? r.ans : "読めず")}</td><td>${esc(r.conf)}</td><td>${esc(r.yen)}</td></tr>`).join("");
+  $("logcsv").disabled = !LOGROWS.length;
+}
+function closeLog() { logOpen = false; $("logp").style.display = "none"; stillTicks = 0; }
+function modelShort(id) { const m = Object.values(CFG.modes).find(x => x.model === id); return m ? m.name.split("（")[0] : id; }
+function logCsv(rows) {
+  const q = v => /[",\r\n]/.test(v) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+  return "\ufeff" + [LOG_COLS, ...rows.map(r => [r.t, r.model, r.found, r.q, r.ans, r.conf, r.reason, r.sec, r.yen])]
+    .map(a => a.map(q).join(",")).join("\r\n") + "\r\n";
+}
+// 書き出し：スマホは共有シート（「ファイルに保存」・AirDrop・ドライブなど）、パソコンはダウンロード。
+// 共有は押した直後にしか呼べないので、記録は画面を開いたときに読んでおき、ここでは待たずに作る
+$("logcsv").onclick = async e => {
+  e.stopPropagation();
+  const name = `camera4_履歴_${nowText().slice(0, 10).replace(/-/g, "")}.csv`, text = logCsv(LOGROWS);
+  const file = new File([text], name, {type: "text/csv"});
+  if (matchMedia("(pointer: coarse)").matches && navigator.canShare && navigator.canShare({files: [file]})) {
+    try { await navigator.share({files: [file]}); return; }
+    catch (err) { if (err.name === "AbortError") return; }
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+};
+$("logbtn").onclick = openLog; $("startlog").onclick = openLog;
+$("logclose").onclick = e => { e.stopPropagation(); closeLog(); };
+$("logp").onclick = e => { e.stopPropagation(); if (e.target === $("logp")) closeLog(); };
+
 async function solveDirect(image, w, h, cap) {
   if (spent() >= limitYen()) return onError(`今月の費用の目安が上限（${limitYen()}円）に届いたので止めています`, true);
   const model = CFG.modes[usingMode].model, t0 = performance.now();
@@ -555,11 +625,16 @@ async function solveDirect(image, w, h, cap) {
     const yen = yenFor(model, {in: u.input_tokens || 0, out: u.output_tokens || 0,
                                cw: u.cache_creation_input_tokens || 0, cr: u.cache_read_input_tokens || 0});
     addSpent(yen);
-    if (r.stop_reason === "refusal") return onError("AI がこの画像への答えを断りました");
-    if (r.stop_reason === "max_tokens") return onError("返事が長すぎて途中で切れました");
+    const sec = ((performance.now() - t0) / 1000).toFixed(1);
+    if (r.stop_reason === "refusal") { logRead(model, {found: false, reason: "AI が答えを断った"}, sec, yen); return onError("AI がこの画像への答えを断りました"); }
+    if (r.stop_reason === "max_tokens") { logRead(model, {found: false, reason: "返事が長すぎて切れた"}, sec, yen); return onError("返事が長すぎて途中で切れました"); }
     const d = clampBoxes(JSON.parse(r.content.filter(b => b.type === "text").map(b => b.text).join("")), w, h);
-    onDone(d, ((performance.now() - t0) / 1000).toFixed(1), yen.toFixed(2), cap);
-  } catch (e) { onError(apiMessage(e)); }
+    logRead(model, d, sec, yen);
+    onDone(d, sec, yen.toFixed(2), cap);
+  } catch (e) {
+    logRead(model, {found: false, reason: "エラー：" + apiMessage(e)}, ((performance.now() - t0) / 1000).toFixed(1), 0);
+    onError(apiMessage(e));
+  }
 }
 // 費用の目安（円）。in＝キャッシュ外の入力、cw＝キャッシュに書いた入力、cr＝キャッシュから読んだ入力
 function yenFor(model, u) {
@@ -577,15 +652,17 @@ const KIND = {text: "文字", pdf: "PDF", image: "画像"};
 let dbp = null;
 function db() {
   return dbp || (dbp = new Promise((ok, ng) => {
-    const r = indexedDB.open("cam4", 1);
-    r.onupgradeneeded = () => r.result.createObjectStore("mats", {keyPath: "id"});
+    const r = indexedDB.open("cam4", 2);       // 2：読み取りの記録（log）を足した（2026/11/22）
+    r.onupgradeneeded = () => { const d = r.result;
+      if (!d.objectStoreNames.contains("mats")) d.createObjectStore("mats", {keyPath: "id"});
+      if (!d.objectStoreNames.contains("log")) d.createObjectStore("log", {keyPath: "n", autoIncrement: true}); };
     r.onsuccess = () => ok(r.result); r.onerror = () => ng(r.error);
   }));
 }
-async function matTx(mode, fn) {
+async function matTx(mode, fn, store = "mats") {
   const d = await db();
   return new Promise((ok, ng) => {
-    const t = d.transaction("mats", mode), r = fn(t.objectStore("mats"));
+    const t = d.transaction(store, mode), r = fn(t.objectStore(store));
     t.oncomplete = () => ok(r.result); t.onerror = () => ng(t.error);
   });
 }
@@ -747,7 +824,7 @@ function tick() {
         const b = lastBig; showBig(b.labels, b.conf, b.sub);
       }
     }
-    if ($("auto").checked && !busy && !matOpen && stillTicks >= STILL_TICKS) {
+    if ($("auto").checked && !busy && !matOpen && !logOpen && stillTicks >= STILL_TICKS) {
       const change = diff(small, sentSmall);
       const isNew = result ? lost : change > NEW_SCENE;   // 枠を追いかけられている間は読み直さない。見失ったか文字が変わったら読む
       // 読めなかった後は、画面が変わっても少し待つ。続けて読めないほど長く待つ（6・12・24・48・60秒）。
@@ -898,6 +975,7 @@ async function init() {
   if (DIRECT) {                               // キーと月の上限を入れる欄・設定ボタンを出す。声は今は無し
     $("keybox").style.display = "flex"; $("settings").style.display = "inline-block";
     $("voice").parentElement.style.display = "none";
+    $("logbtn").style.display = "inline-block"; $("startlog").style.display = "";
     $("limit").value = limitYen();
     const key = localStorage.getItem("cam4-key") || "";
     $("apikey").placeholder = key ? "保存済み（変えるときだけ入れる）" : "sk-ant-…";
@@ -974,6 +1052,7 @@ $("go").onclick = async () => {
 addEventListener("keydown", e => {
   if (["SELECT", "INPUT", "TEXTAREA"].includes(e.target.tagName)) return;   // 文を打っている間は反応しない
   if (matOpen) { if (e.code === "Escape") closeMat(); return; }
+  if (logOpen) { if (e.code === "Escape") closeLog(); return; }
   if (e.code === "Space") { e.preventDefault(); solve("key"); }
   if (e.code === "Escape") clearResult();
 });
