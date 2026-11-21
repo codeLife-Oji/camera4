@@ -150,7 +150,7 @@
 
 <div id="start">
   <h1>カメラ4択</h1>
-  <div id="ver">版 2026-11-22a</div>
+  <div id="ver">版 2026-11-22b</div>
   <p>問題をカメラに映すと、AI が読んで正解を映像の上に示します。<br>
      止めて映すと自動で読みます。画面を押すと今すぐ読みます。</p>
   <div id="pinbox"><div>Mac に出ている6桁の PIN を入れてください</div>
@@ -202,7 +202,8 @@ let misses = 0;               // 続けて読めなかった回数
 const LOST = 30;              // 追いかけの差がこれを超えたら枠を薄くする
 const CHANGED = 0.11;         // 選択肢の文字の波形の食い違いがこれを超えたら別の問題とみなす
                               // （画面を撮った試しで、同じ問題0.04〜0.06、別の問題0.16〜0.34。2026/11/22）
-const LOST_HIDE_TICKS = 4;    // 問題が変わった・見失ったままこの回数（約0.5秒）続いたら、前の答えを消す
+const LOST_HIDE_TICKS = 4;    // 問題が変わった・見失ったままこの回数（約0.5秒）続いたら、前の答えを隠す
+const FOUND_SHOW_TICKS = 3;   // 隠した後、同じ問題とこの回数（約0.4秒）続けて見なしたら、前の答えを出し直す（ちらつき防止）
 
 let info = {}, busy = false, stream = null;
 let stillTicks = 0, prevSmall = null, sentSmall = null, lastSendAt = 0, lastFound = true;
@@ -231,8 +232,9 @@ function diff(a, b) {
 // 列ごとに足すので、少しの傾き・上下のずれに強い。ぼかして平均で割り、ピントや明るさが変わっても形だけで比べる。
 // src は video か読んだときの canvas、rv は「src のピクセル ÷ 読んだ画像（cw）のピクセル」
 const PROF_W = 560, PROF_PAD = 8, PROF_R = 8, PROF_SM = 2;
-function rowProf(src, rv, b, sh, s, padX) {
-  const x = b.x0 + sh.x - padX, y = b.y0 + sh.y - PROF_PAD, w = b.x1 - b.x0 + 2 * padX, h = b.y1 - b.y0 + 2 * PROF_PAD;
+const PROF_SCALES = [0.94, 0.97, 1, 1.03, 1.06];   // 近づけた・離した分（±6%）も合わせて比べる
+function rowProf(src, rv, b, sh, s, padX, padY) {
+  const x = b.x0 + sh.x - padX, y = b.y0 + sh.y - padY, w = b.x1 - b.x0 + 2 * padX, h = b.y1 - b.y0 + 2 * padY;
   const W = Math.max(8, Math.round(w * s)), H = Math.max(4, Math.round(h * s));
   work.width = W; work.height = H;
   wctx.drawImage(src, x * rv, y * rv, w * rv, h * rv, 0, 0, W, H);
@@ -252,16 +254,20 @@ function profRef(img, choices) {      // 読んだときの画像（canvas、cw 
   const wmax = Math.max(...choices.map(c => c.box.x1 - c.box.x0));
   if (!(wmax > 4)) return null;
   const s = Math.min(1, PROF_W / wmax);
-  return {s, rows: choices.map(c => rowProf(img, 1, c.box, {x: 0, y: 0}, s, 0))};
+  return {s, rows: choices.map(c => rowProf(img, 1, c.box, {x: 0, y: 0}, s, 0, PROF_PAD))};
 }
-// 今の画面の同じ所（sh だけずらす）と比べ、食い違いの割合（0＝同じ〜1＝全く違う）を選択肢で平均する
+// 今の画面の同じ所（sh だけずらす）と比べ、食い違いの割合（0＝同じ〜1＝全く違う）を選択肢で平均する。
+// 横のずれ（±PROF_R）と大きさ（PROF_SCALES）を変えて、いちばん合うところで比べる
+// （手で持つと距離が数％変わり、大きさを合わせないと同じ問題でも別と見なした。2026/11/22）
 function profCmp(pr, choices, sh, cw) {
-  const rv = v.videoWidth / cw, padX = PROF_R / pr.s; let sum = 0;
+  const rv = v.videoWidth / cw, padX = (PROF_R / pr.s) * 2; let sum = 0;
   choices.forEach((c, k) => {
-    const a = pr.rows[k], b = rowProf(v, rv, c.box, sh, pr.s, padX), off = Math.round((b.length - a.length) / 2);
+    const a = pr.rows[k], b = rowProf(v, rv, c.box, sh, pr.s, padX, PROF_PAD), ca = (a.length - 1) / 2, cb = (b.length - 1) / 2;
     let best = 1;
-    for (let dx = -PROF_R; dx <= PROF_R; dx++) { let d = 0, t = 0;
-      for (let x = 0; x < a.length; x++) { const xx = x + off + dx; if (xx < 0 || xx >= b.length) continue; d += Math.abs(a[x] - b[xx]); t += a[x] + b[xx]; }
+    for (const f of PROF_SCALES) for (let dx = -PROF_R; dx <= PROF_R; dx++) { let d = 0, t = 0;
+      for (let x = 0; x < a.length; x += 1) {
+        const u = cb + (x - ca) * f + dx, i = Math.floor(u); if (i < 0 || i >= b.length - 1) continue;
+        const bv = b[i] + (b[i + 1] - b[i]) * (u - i); d += Math.abs(a[x] - bv); t += a[x] + bv; }
       if (t > 0 && d / t < best) best = d / t; }
     sum += best;
   });
@@ -328,7 +334,7 @@ function draw() {
     g.addColorStop(0, "rgba(167,139,250,0)"); g.addColorStop(1, "rgba(167,139,250,.45)");
     ctx.fillStyle = g; ctx.fillRect(r.x, y - 60, r.w, 66);
   }
-  if (result && result.d.found) {
+  if (result && result.d.found && !bigHiddenByLost) {   // 前の答えを隠している間は枠も描かない
     const s = r.w / result.cw, sx = shift.x, sy = shift.y;   // shift は読んだ画像のピクセル
     const age = Math.min(1, (now - result.shown) / 500), alpha = lost ? 0.25 : 1;
     const ok = new Set(result.d.answer_labels.map(norm));
@@ -364,7 +370,7 @@ function esc(s) { return (s || "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": 
 
 function pill(text, cls = "") { $("pilltext").textContent = text; $("pill").className = cls; $("pill").style.display = ""; hideBig(); }
 // 大きな正解（前の小さな「正解 C」のおよそ5倍。記号が長いときは字を小さくする）
-let lastBig = null, bigHiddenByLost = false, lostTicks = 0;
+let lastBig = null, bigHiddenByLost = false, lostTicks = 0, foundTicks = 0;
 function showBig(labels, conf, sub) {
   lastBig = {labels, conf, sub}; bigHiddenByLost = false;
   const text = labels.join("・"), b = $("big");
@@ -731,12 +737,13 @@ function tick() {
     const motion = diff(small, prevSmall); prevSmall = small;
     stillTicks = motion < STILL ? stillTicks + 1 : 0;
     if (result) track();
-    // 問題が変わった・見失ったまま約0.5秒たったら、前の答えを消す（止めれば読み直す）。同じ問題に戻れば出し直す
+    // 問題が変わった・見失ったまま約0.5秒たったら、前の答えを隠す（自動なら止めれば読み直す）。同じ問題に戻れば出し直す
     if (result && !busy) {
-      lostTicks = lost ? lostTicks + 1 : 0;
+      lostTicks = lost ? lostTicks + 1 : 0; foundTicks = lost ? 0 : foundTicks + 1;
       if (lostTicks >= LOST_HIDE_TICKS && !bigHiddenByLost && $("big").style.display !== "none") {
-        pill("問題が変わりました。止めると読みます"); bigHiddenByLost = true;
-      } else if (!lostTicks && bigHiddenByLost && lastBig) {
+        pill($("auto").checked ? "前の答えを隠しました。止めると読み直します" : "前の答えを隠しました。画面を押すと読みます");
+        bigHiddenByLost = true;
+      } else if (foundTicks >= FOUND_SHOW_TICKS && bigHiddenByLost && lastBig) {
         const b = lastBig; showBig(b.labels, b.conf, b.sub);
       }
     }
